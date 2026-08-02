@@ -1,3 +1,46 @@
+# fable-advisor-k
+
+> 이 저장소는 업스트림 `DannyMac180/fable-advisor`의 패치 fork입니다. 플러그인의 `name`은 `fable-advisor` 그대로이므로 호출명(`/fable-advisor:orchestration`, `fable-advisor:codex-implementer` 등)도 업스트림과 동일하게 유지됩니다.
+
+## 이 fork가 다른 점
+
+- `codex` 레인에 맡길 스펙을 하나의 위임당 하나의 산출물, 약 5분 분량으로 나누며 여러 산출물을 한 번에 묶지 않습니다.
+- timeout을 레인 장애가 아니라 "작업이 너무 크다"는 크기 판정 신호로 취급합니다. timeout이 난 통스펙을 Fable 레인으로 재라우팅하는 업스트림 v4와 달리, 이 fork는 스펙을 분할한 뒤 `codex`로 재위임합니다.
+- 큰 작업은 `codex exec resume <session-id>` 체인으로 짧은 호출들을 순차 연결하여 처리합니다.
+- `codex-implementer`의 shell timeout을 540초로 설정하여 Claude Code Bash tool 자체의 600초 kill보다 먼저 timeout을 관측하고 보고합니다. Bash tool 호출에는 `timeout: 600000`을 명시해야 합니다.
+- 2026-07 `structured-finance` 저장소에서 동일 작업을 측정한 결과, 통스펙은 23.3분 만에 timeout으로 kill되어 작업이 유실됐지만, 분해한 STOP-scoped 스펙은 8.1분 만에 완료됐습니다.
+
+상세 내용은 [PATCHES-K.md](PATCHES-K.md)를 참고하십시오.
+
+## 설치
+
+```bash
+claude plugin marketplace add Hanriverflow/fable-advisor-k
+claude plugin install fable-advisor@fable-advisor-k
+```
+
+업스트림 원본(`fable-advisor@fable-advisor`)을 이미 설치해 사용 중이었다면 기존 마켓플레이스를 먼저 제거하십시오.
+
+```bash
+claude plugin uninstall fable-advisor@fable-advisor
+claude plugin marketplace remove fable-advisor
+```
+
+## grok 레인
+
+업스트림 v4는 `grok` 레인을 제거했습니다. 필요하면 upstream v3.1 트리의 [`grok-implementer.md`](https://github.com/DannyMac180/fable-advisor/blob/b3b50a9/agents/grok-implementer.md)를 `~/.claude/agents/`에 개인 에이전트로 두어 v4 라우팅과 공존시킬 수 있습니다.
+
+## 업스트림 동기화
+
+1. `git fetch upstream && git merge upstream/main`
+2. 충돌을 해결합니다. 대상은 `.claude-plugin/plugin.json`의 버전과, 업스트림이 수정했다면 패치된 두 파일 `skills/orchestration/SKILL.md`, `agents/codex-implementer.md`입니다.
+3. 버전을 bump합니다. 업스트림이 X.Y.0을 내면 이 fork는 X.Y.1로 올리고, 로컬 수정마다 1씩 더합니다.
+4. push한 뒤 `claude plugin update fable-advisor@fable-advisor-k`를 실행합니다.
+
+---
+
+*이하는 업스트림 v4.0.0 README 원문.*
+
 # Fable Advisor
 
 **Opus runs the show. Cheaper typing, smarter escalation, and a Fable review before anything ships.**
