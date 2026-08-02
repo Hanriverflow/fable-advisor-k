@@ -1,6 +1,6 @@
 ---
 name: orchestration
-description: Routing doctrine for the architect-as-orchestrator pattern — how an Opus session delegates routine implementation to a cheaper cross-vendor lane, escalates high-complexity one-offs to Fable, and gets every deliverable reviewed by the Fable advisor before reporting done. USE WHEN delegating implementation work, choosing between codex-implementer/fable-implementer lanes, writing a spec for a subagent, deciding whether to consult fable-advisor, managing session cost or token spend, or running any multi-task build where the session is the architect.
+description: Routing doctrine for the architect-as-orchestrator pattern — how an Opus session delegates routine implementation to a cheaper cross-vendor lane, escalates high-complexity one-offs to Fable, and gets every deliverable reviewed by the Fable advisor before reporting done. USE WHEN delegating implementation work, choosing between codex-implementer/fable-implementer lanes, writing a spec for a subagent, deciding whether to consult fable-advisor, managing session cost or token spend, sizing or splitting codex-bound tasks, recovering from a lane timeout, or running any multi-task build where the session is the architect.
 ---
 
 # Orchestration — the architect's routing doctrine
@@ -31,7 +31,7 @@ Deciding rule: how much does the outcome depend on judgment the spec can't captu
 
 The codex lane is also the cross-vendor half of the pattern: its output comes from a non-Anthropic family, so the Claude architect's verification and the Fable review are genuine cross-vendor checks, not same-family self-review.
 
-If the codex lane returns `unavailable` or `timeout`, re-route the same spec to `fable-implementer` and say so explicitly in your report — never quietly absorb the substitution or the cost change.
+If the codex lane returns `unavailable`, re-route the same spec to `fable-implementer` and say so explicitly in your report — never quietly absorb the substitution or the cost change. `timeout` is a sizing verdict, not a lane failure: split the spec (see "Task sizing" below) and re-delegate the pieces to the codex lane; escalate to `fable-implementer` only when a right-sized piece keeps failing for judgment reasons, not size.
 
 ## The spec contract
 
@@ -44,6 +44,17 @@ Implementers share none of your conversation context. Every delegation prompt ca
 5. **Verification** — the command(s) that prove it works
 
 A spec you can't finish writing is a signal the decision isn't made yet — that's architect work, not a reason to hand the ambiguity to a cheaper model.
+
+## Task sizing — keep codex calls short
+
+Every codex-lane invocation runs under a hard wall clock (a single Bash call dies at 10 minutes), and GPT-5.6 Sol at high reasoning spends minutes thinking before it types. An oversized spec does not come back slow — it comes back killed, with the reasoning you paid for spent on work that never lands.
+
+- **One deliverable per delegation.** Size each codex-bound spec so a single run finishes comfortably inside the cap — aim for about five minutes: one file, one cohesive change, or one module plus its test. If the objective needs "and then", it is two specs.
+- **Chain, don't bundle.** Related subtasks go out as sequential delegations, each restating the shared context and what earlier steps produced; independent ones launch in parallel. Merging results is cheap architect work; a timeout wastes the whole run.
+- **Order write-early-then-stop.** Every codex spec ends with: write the artifact to disk first, run the verification, then STOP — no exploration beyond the spec. Partial work on disk survives a kill; work held in context does not.
+- **A timeout means the task was too big.** Split it and re-delegate the pieces; never resend the same spec unchanged and hope.
+
+The `fable-implementer` lane runs in-harness through many tool calls, so it does not share this single-call wall clock — the cap is a codex-lane (CLI) constraint.
 
 ## Parallelism
 

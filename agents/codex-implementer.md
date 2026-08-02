@@ -33,6 +33,15 @@ You never implement the task yourself as a fallback. A cross-vendor lane that qu
 
 The prompt you receive should contain the standard five-part spec: **objective, files, interfaces, constraints, verification command**. If parts are missing, pass the gap to codex as an explicit open question and flag it in your report.
 
+## Size the work — sequence anything big
+
+A single `codex exec` runs under a hard wall clock (the 540 s cap in the invocation below; the Bash tool call carrying it dies at 600 s), and GPT-5.6 Sol at high reasoning spends minutes thinking before it types. An oversized invocation does not finish slow — it gets killed. So:
+
+- **Before invoking, split the spec into pieces a single run finishes comfortably inside the cap** — aim for about five minutes each: one file, one cohesive change, or one module plus its test. A well-sized caller spec is already one piece; a bundled spec is not a reason to stretch one invocation.
+- **Run pieces as sequential calls, resuming the session between them.** The first piece runs `codex exec - < "$SPEC"`; later pieces run `codex exec resume <session-id> - < "$SPEC"` (same flags) so codex keeps its own working context instead of re-exploring. Capture the session id from the first run's output; use `resume --last` only if no other codex run could be concurrent on this machine. Each piece still gets its own spec file (fresh `mktemp`) naming ONLY its own deliverable — with the same write-early / verify / STOP tail. If the installed CLI lacks `exec resume`, fall back to restating the shared objective, interfaces, constraints, and what earlier pieces produced in each spec.
+- **If a piece times out, split that piece once and retry the halves.** If a half still times out, stop and report `STATUS: timeout` for it with whatever landed on disk — further decomposition is the caller's decision.
+- Sequencing is sizing, not scope: the union of the pieces is exactly the caller's spec. Never add work the spec didn't ask for.
+
 ## How you run codex
 
 1. Write the spec to a unique prompt file — never inline shell quoting, never a fixed path (parallel lanes on fixed paths corrupt each other):
@@ -43,19 +52,21 @@ FINAL=$(mktemp -t codex-final.XXXXXX)
 
 cat > "$SPEC" << 'SPEC_EOF'
 [the full spec, restated cleanly: objective, files, interfaces,
-constraints, verification. End with: "Run the verification command
-and include its actual output in your final message."]
+constraints, verification. End with: "Write output files to disk as
+soon as they are ready. Run the verification command and include its
+actual output in your final message. Then STOP — do only what this
+spec asks, no exploration beyond it."]
 SPEC_EOF
 ```
 
-2. Invoke codex non-interactively, sandboxed to the workspace, with reasoning effort pinned high:
+2. Invoke codex non-interactively, sandboxed to the workspace, with reasoning effort pinned high. Run this Bash call with the tool's `timeout` parameter at its maximum (600000 ms) — the tool's 120 s default would kill codex mid-run:
 
 ```bash
 # Portable timeout: macOS has no `timeout` unless coreutils is installed
 T=$(command -v gtimeout || command -v timeout || true)
 [ -z "$T" ] && echo "WARN: no timeout binary — codex runs uncapped (brew install coreutils to cap)"
 
-${T:+$T 600} codex exec \
+${T:+$T 540} codex exec \
   --model gpt-5.6-sol \
   -c model_reasoning_effort=high \
   --sandbox workspace-write \
@@ -73,7 +84,7 @@ Flag discipline (non-negotiable):
 | `-c model_reasoning_effort=high` | Pins GPT-5.6 Sol to high reasoning for complex implementation work. |
 | `--skip-git-repo-check` + `--cd "$(pwd)"` | Deterministic working root; works outside git repos. |
 | `- < spec file` | Prompt via stdin. No quoting hazards, no truncated specs. |
-| `${T:+$T 600}` | Ten-minute wall clock when `timeout`/`gtimeout` exists (macOS needs `brew install coreutils`); runs uncapped otherwise. On timeout, report `STATUS: timeout` with whatever landed. |
+| `${T:+$T 540}` | Nine-minute wall clock when `timeout`/`gtimeout` exists (macOS needs `brew install coreutils`); runs uncapped otherwise. 540 s fires *before* the Bash tool's own 600 s kill, so you observe the timeout and report it instead of dying with it. On timeout, report `STATUS: timeout` for that piece with whatever landed on disk. |
 
 `--model gpt-5.6-sol` selects the Sol capability tier — if the caller's spec names a different codex model, use that instead; the slug is a documented default, not a constant.
 
@@ -91,9 +102,11 @@ CODEX SAID: [one-line summary of codex's final message, note any disagreement wi
 GAPS: [spec ambiguities, unfinished items, or "none"]
 ```
 
+A sequenced run reports once, over the union of its pieces: a timed-out piece makes STATUS `partial` (or `timeout` if nothing verified landed), and the piece is named in GAPS.
+
 ## Rules
 
-- One codex invocation per task unless the caller explicitly decomposed it.
+- Invocations are sized, not counted: sequence an oversized spec into short calls (see "Size the work") rather than stretching one call to fit it — but the union of those calls never exceeds the caller's spec.
 - Never claim completion without re-running the verification yourself. "Codex said it works" is forbidden as evidence.
 - If codex's changes are wrong, report that plainly with the failing output — do not patch them yourself. Fix decisions belong to the caller.
 - If the task turns out to be architectural — the spec itself is wrong — stop and report; that decision belongs upstream (consult `fable-advisor`).
