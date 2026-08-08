@@ -90,6 +90,7 @@ T=$(command -v gtimeout || command -v timeout || true)
 [ -z "$T" ] && echo "WARN: no timeout binary — codex runs uncapped (brew install coreutils to cap)"
 CAP_MS=${BASH_MAX_TIMEOUT_MS:-600000}
 CAP=$(( CAP_MS / 1000 - 60 ))
+echo "inner cap ${CAP}s — this Bash call's timeout parameter must be ${CAP_MS}, or the tool kills first and the timeout is unobservable"
 
 ${T:+$T -k 10 $CAP} codex exec \
   --sandbox workspace-write \
@@ -99,7 +100,7 @@ ${T:+$T -k 10 $CAP} codex exec \
   --json \
   - < "$SPEC" > "$LOG" 2>&1
 RC=$?
-[ "$RC" -eq 124 ] && echo "TIMEOUT: killed at ${CAP}s"
+{ [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; } && echo "TIMEOUT: killed at ${CAP}s (rc=$RC)"
 SID=$(head -c 8192 "$LOG" | grep -m1 -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 echo "SID=$SID RC=$RC"; tail -c 1500 "$LOG"
 ```

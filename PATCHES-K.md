@@ -54,9 +54,11 @@ Applies to subagent Bash calls too (verified against code.claude.com/docs/en/env
 - **Resume corrected against the real CLI** (codex-cli 0.146.1): `codex exec resume`
   rejects `--sandbox`/`--cd` (inherits both from the session) — the previous "same
   flags" instruction was wrong. Session id is captured from the first event of the
-  `--json` stream (UUID in the `session_meta` event; same id as the
+  `--json` stream (`thread.started` → `thread_id`; same UUID as the
   `~/.codex/sessions/**/rollout-*-<uuid>.jsonl` filename), so `resume --last` is now
-  only a last-resort fallback, not the happy path.
+  only a last-resort fallback, not the happy path. Live-verified 2026-08-08: id
+  capture (robust to stderr noise ahead of the first event) and an
+  `exec resume <id>` round-trip that recalled prior-turn context.
 - `--json > "$LOG"`: event stream goes to a temp file, not the runner's context —
   session id + timeout forensics without paying tokens for the stream.
 - `--cd "$(pwd -W 2>/dev/null || pwd)"`: Windows-native path under Git Bash.
