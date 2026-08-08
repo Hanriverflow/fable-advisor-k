@@ -9,7 +9,7 @@ The session is the architect: it owns requirements, architecture, decomposition,
 
 ## Cost discipline — the prime directive
 
-The economics of this pattern: Opus orchestrates (judgment-heavy, volume-light), GPT-5.6 Luna does the routine typing (volume-heavy, cheap, cross-vendor), and Fable — the most expensive model available — is spent only where it changes outcomes: the hardest one-off implementations and the final review. Three rules follow.
+The economics of this pattern: Opus orchestrates (judgment-heavy, volume-light), the machine-pinned GPT tier does the routine typing (volume-heavy, cheap, cross-vendor), and Fable — the most expensive model available — is spent only where it changes outcomes: the hardest one-off implementations and the final review. Three rules follow.
 
 **Emit judgment, not volume.** The architect's output is decomposition, specs, routing decisions, verdicts on diffs, and short reports. It does not type implementation code, test bodies, boilerplate, or config files. A code block longer than an interface signature or a few illustrative lines is a spec that hasn't been delegated yet — stop and delegate it. Fixing a lane's bug by hand is the same failure in disguise: send a corrected spec back to the lane instead.
 
@@ -23,7 +23,7 @@ What stays with the architect regardless of cost: decomposition, interface desig
 
 | Lane | Producer | Invoke | Route here when |
 |---|---|---|---|
-| Routine | GPT-5.6 Luna (max reasoning) | `codex-implementer` agent | The spec fully determines the outcome: boilerplate, wiring, CRUD, mechanical edits, straightforward features. **Default lane.** Requires the codex CLI. |
+| Routine | GPT tier per `~/.codex/config.toml` (machine SOT, kept at the latest tier) | `codex-implementer` agent | The spec fully determines the outcome: boilerplate, wiring, CRUD, mechanical edits, straightforward features. **Default lane.** Requires the codex CLI. |
 | High-complexity | Fable 5 | `fable-implementer` agent | The outcome depends heavily on judgment the spec can't capture: subtle concurrency, non-trivial algorithms, security-sensitive paths, hard debugging, wide-blast-radius refactors — or the routine lane has already failed the task once. One-off escalations, never the default. |
 | Review | Fable 5 | `fable-advisor` agent | Not an implementation lane. Commitment boundaries and the mandatory end-of-deliverable review — see below. |
 
@@ -31,7 +31,7 @@ Deciding rule: how much does the outcome depend on judgment the spec can't captu
 
 The codex lane is also the cross-vendor half of the pattern: its output comes from a non-Anthropic family, so the Claude architect's verification and the Fable review are genuine cross-vendor checks, not same-family self-review.
 
-If the codex lane returns `unavailable`, re-route the same spec to `fable-implementer` and say so explicitly in your report — never quietly absorb the substitution or the cost change. `timeout` is a sizing verdict, not a lane failure: split the spec (see "Task sizing" below) and re-delegate the pieces to the codex lane; escalate to `fable-implementer` only when a right-sized piece keeps failing for judgment reasons, not size.
+If the codex lane returns `unavailable`, re-route the same spec to `fable-implementer` and say so explicitly in your report — never quietly absorb the substitution or the cost change. `timeout` is a sizing verdict, not a lane failure: split the spec (see "Task sizing" below) and re-delegate the pieces to the codex lane; escalate to `fable-implementer` only when a right-sized piece keeps failing for judgment reasons, not size. `refused` (exit 0, empty diff, polite decline) means codex declined the task itself — read the quoted REASON and fix its cause (usually a machine-wide instruction-file rule or a spec that asks codex to violate one); neither re-routing nor splitting fixes a refusal.
 
 ## The spec contract
 
@@ -47,7 +47,7 @@ A spec you can't finish writing is a signal the decision isn't made yet — that
 
 ## Task sizing — keep codex calls short
 
-Every codex-lane invocation runs under a hard wall clock (a single Bash call dies at 10 minutes), and GPT-5.6 Sol at high reasoning spends minutes thinking before it types. An oversized spec does not come back slow — it comes back killed, with the reasoning you paid for spent on work that never lands.
+Every codex-lane invocation runs under a hard wall clock (stock, a single Bash call dies at 10 minutes; this fork's install step raises the ceiling to 30 via `BASH_MAX_TIMEOUT_MS`, and the lane caps itself 60 s under whichever ceiling applies), and a frontier GPT tier at the top reasoning efforts the config pins spends minutes thinking before it types. An oversized spec does not come back slow — it comes back killed, with the reasoning you paid for spent on work that never lands. The raised ceiling turns a kill into an observed timeout; it does not make bundling free.
 
 - **One deliverable per delegation.** Size each codex-bound spec so a single run finishes comfortably inside the cap — aim for about five minutes: one file, one cohesive change, or one module plus its test. If the objective needs "and then", it is two specs.
 - **Chain, don't bundle.** Related subtasks go out as sequential delegations, each restating the shared context and what earlier steps produced; independent ones launch in parallel. Merging results is cheap architect work; a timeout wastes the whole run.

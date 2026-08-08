@@ -6,8 +6,11 @@
 
 - `codex` 레인에 맡길 스펙을 하나의 위임당 하나의 산출물, 약 5분 분량으로 나누며 여러 산출물을 한 번에 묶지 않습니다.
 - timeout을 레인 장애가 아니라 "작업이 너무 크다"는 크기 판정 신호로 취급합니다. timeout이 난 통스펙을 Fable 레인으로 재라우팅하는 업스트림 v4와 달리, 이 fork는 스펙을 분할한 뒤 `codex`로 재위임합니다.
-- 큰 작업은 `codex exec resume <session-id>` 체인으로 짧은 호출들을 순차 연결하여 처리합니다.
-- `codex-implementer`의 shell timeout을 540초로 설정하여 Claude Code Bash tool 자체의 600초 kill보다 먼저 timeout을 관측하고 보고합니다. Bash tool 호출에는 `timeout: 600000`을 명시해야 합니다.
+- 큰 작업은 `codex exec resume <session-id>` 체인으로 짧은 호출들을 순차 연결하여 처리합니다. 세션 id는 `--json` 이벤트 스트림의 첫 이벤트에서 추출하며(`resume --last`는 최후 폴백), `resume`이 `--sandbox`/`--cd`를 받지 않는다는 실제 CLI(0.146.1) 동작에 맞게 호출을 교정했습니다.
+- **모델·effort 플래그를 전달하지 않습니다.** `~/.codex/config.toml`이 SOT입니다(머신 소유자가 최신 티어로 유지). 업스트림의 모델 재핀(Sol→Luna→…)을 플래그에 병합할 필요가 없고, 티어가 바뀌어도 낡은 슬러그로 레인이 깨지지 않습니다.
+- shell timeout은 하드코딩(540초) 대신 **Bash tool 상한 − 60초로 유도 계산**되어, 어떤 상한에서도 timeout이 관측·보고됩니다(`STATUS: timeout` + 디스크에 남은 부분 작업). `timeout -k 10`으로 TERM→KILL 에스컬레이션하며, Git Bash(MSYS)에서 프로세스 트리 전체가 죽는 것을 실험으로 확인했습니다.
+- 설치 단계에서 `BASH_DEFAULT_TIMEOUT_MS`/`BASH_MAX_TIMEOUT_MS`를 올려(아래 참조) 120초 기본 kill과 600초 상한을 함께 제거합니다.
+- 업스트림 2026-08-04 패치(무음 거부 감지: 스펙 preamble + `STATUS: refused` + "빈 diff는 complete가 아니다" 규칙)를 병합해 유지합니다.
 - 2026-07 `structured-finance` 저장소에서 동일 작업을 측정한 결과, 통스펙은 23.3분 만에 timeout으로 kill되어 작업이 유실됐지만, 분해한 STOP-scoped 스펙은 8.1분 만에 완료됐습니다.
 
 상세 내용은 [PATCHES-K.md](PATCHES-K.md)를 참고하십시오.
@@ -17,6 +20,15 @@
 ```bash
 claude plugin marketplace add Hanriverflow/fable-advisor-k
 claude plugin install fable-advisor@fable-advisor-k
+```
+
+그리고 `~/.claude/settings.json`의 `env` 블록에 Bash tool 상한 인상을 추가하십시오 (codex 레인의 wall clock이 이 값에서 유도됩니다):
+
+```json
+"env": {
+  "BASH_DEFAULT_TIMEOUT_MS": "600000",
+  "BASH_MAX_TIMEOUT_MS": "1800000"
+}
 ```
 
 업스트림 원본(`fable-advisor@fable-advisor`)을 이미 설치해 사용 중이었다면 기존 마켓플레이스를 먼저 제거하십시오.
@@ -39,7 +51,7 @@ claude plugin marketplace remove fable-advisor
 
 ---
 
-*이하는 업스트림 v4.0.0 README 원문.*
+*이하는 업스트림 README 원문(v4.0.0 + 2026-08-04 ad2bdc3 반영). 모델·effort 표기는 업스트림 기준이며, 이 fork에서는 위의 config-SOT 정책이 우선합니다.*
 
 # Fable Advisor
 

@@ -1,7 +1,7 @@
 {
   "name": "fable-advisor",
-  "version": "4.0.1",
-  "description": "Run your session on Opus as a full-time architect: it writes specs and verdicts, GPT-5.6 Luna at max reasoning (via Codex) does the routine typing, Fable 5 handles the high-complexity one-offs — and reviews every deliverable before it ships.",
+  "version": "4.0.2",
+  "description": "Run your session on Opus as a full-time architect: it writes specs and verdicts, the machine-pinned GPT tier (via Codex, SOT ~/.codex/config.toml) does the routine typing, Fable 5 handles the high-complexity one-offs — and reviews every deliverable before it ships.",
   "author": {
     "name": "Dan McAteer",
     "url": "https://github.com/DannyMac180"
