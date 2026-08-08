@@ -11,7 +11,7 @@
     {
       "name": "fable-advisor",
       "source": "./",
-      "description": "Opus architect-as-orchestrator: your session writes specs and verdicts, routing routine implementation to GPT-5.6 Sol (Codex CLI) and high-complexity one-offs to Fable 5 — with a mandatory Fable review before anything ships."
+      "description": "Opus architect-as-orchestrator: your session writes specs and verdicts, routing routine implementation to GPT-5.6 Luna (Codex CLI) and high-complexity one-offs to Fable 5 — with a mandatory Fable review before anything ships."
     }
   ]
 }
