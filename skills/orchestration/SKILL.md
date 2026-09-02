@@ -1,77 +1,106 @@
 ---
 name: orchestration
-description: Routing doctrine for the architect-as-orchestrator pattern — how an Opus session delegates routine implementation to a cheaper cross-vendor lane, escalates high-complexity one-offs to Fable, and gets every deliverable reviewed by the Fable advisor before reporting done. USE WHEN delegating implementation work, choosing between codex-implementer/fable-implementer lanes, writing a spec for a subagent, deciding whether to consult fable-advisor, managing session cost or token spend, sizing or splitting codex-bound tasks, recovering from a lane timeout, or running any multi-task build where the session is the architect.
+description: Routing doctrine for a Fable 5.1 architect that delegates routine implementation to GPT-5.6 Luna, escalates judgment-heavy one-offs to GPT-5.6 Sol, selects reasoning effort per task, sizes Codex work under observable timeout limits, resumes related pieces safely, and obtains a Fable review before reporting done. USE WHEN delegating implementation, choosing a lane or effort, writing a subagent spec, recovering from timeout or refusal, deciding whether to consult fable-advisor, using optional Codex plugin review skills, managing model cost, or running a multi-task build where the session is the architect.
 ---
 
 # Orchestration — the architect's routing doctrine
 
-The session is the architect: it owns requirements, architecture, decomposition, specs, routing, and verification. It should almost never type implementation code. Every implementation task gets routed to the cheapest lane that is adequate for it — escalation to Fable is deliberate, per task, never a fixed binding — and every finished deliverable gets a Fable review before the architect reports done.
+The session is the architect. It owns requirements, architecture, decomposition, interfaces, specs, routing, and acceptance. It should almost never type implementation code. Route each implementation task to the cheapest adequate lane at the lowest adequate reasoning effort, keep every CLI call small enough to finish observably, and obtain a clean-context Fable review before reporting a deliverable complete.
 
 ## Cost discipline — the prime directive
 
-The economics of this pattern: Opus orchestrates (judgment-heavy, volume-light), the machine-pinned GPT tier does the routine typing (volume-heavy, cheap, cross-vendor), and Fable — the most expensive model available — is spent only where it changes outcomes: the hardest one-off implementations and the final review. Three rules follow.
+Fable 5.1 orchestrates and reviews. GPT-5.6 Luna performs routine typing. GPT-5.6 Sol takes the hard one-offs. Both implementation lanes are cross-vendor producers; Fable remains responsible for judgment and acceptance.
 
-**Emit judgment, not volume.** The architect's output is decomposition, specs, routing decisions, verdicts on diffs, and short reports. It does not type implementation code, test bodies, boilerplate, or config files. A code block longer than an interface signature or a few illustrative lines is a spec that hasn't been delegated yet — stop and delegate it. Fixing a lane's bug by hand is the same failure in disguise: send a corrected spec back to the lane instead.
+**Emit judgment, not volume.** The architect produces decomposition, interfaces, specs, routing decisions, and verdicts. Long implementation blocks, test bodies, boilerplate, and mechanical config belong in a lane. If a lane produces a bad diff, send a corrected spec instead of silently repairing it.
 
-**Keep the context lean.** Everything in the architect's context is re-read at architect prices on every turn. Delegate broad exploration, codebase searches, and log-grepping to a cheap read-only agent and keep only the conclusions; read files yourself only when the decision genuinely depends on the exact code. Don't paste long files, full diffs, or verbose command output into the conversation when a path reference or an excerpt will do.
+**Keep the context lean.** Delegate broad searches and log inspection to a cheaper read-only agent when available. Keep conclusions in the architect's context, not full files, JSON event streams, or verbose command output.
 
-**Reason once, then hand off.** Do the hard thinking — the architecture, the interface design, the debugging hypothesis — in one pass, capture it in the spec, and let the lane carry it from there. Re-deriving decisions across turns burns the premium twice.
+**Reason once, then hand off.** Make architectural and debugging decisions before delegation, capture them in the spec, and avoid paying to rediscover them across turns.
 
-What stays with the architect regardless of cost: decomposition, interface design, hypothesis selection when debugging, spec writing, lane routing, and judging verification evidence. Those tokens are what the premium is for — everything else is a candidate for delegation.
+The architect always retains decomposition, interface design, debugging hypothesis selection, lane and effort routing, and judgment of verification evidence.
 
 ## The lanes
 
 | Lane | Producer | Invoke | Route here when |
 |---|---|---|---|
-| Routine | GPT tier per `~/.codex/config.toml` (machine SOT, kept at the latest tier) | `codex-implementer` agent | The spec fully determines the outcome: boilerplate, wiring, CRUD, mechanical edits, straightforward features. **Default lane.** Requires the codex CLI. |
-| High-complexity | Fable 5 | `fable-implementer` agent | The outcome depends heavily on judgment the spec can't capture: subtle concurrency, non-trivial algorithms, security-sensitive paths, hard debugging, wide-blast-radius refactors — or the routine lane has already failed the task once. One-off escalations, never the default. |
-| Review | Fable 5 | `fable-advisor` agent | Not an implementation lane. Commitment boundaries and the mandatory end-of-deliverable review — see below. |
+| Routine | GPT-5.6 Luna | `codex-implementer` | The spec determines the outcome: mechanical edits, wiring, CRUD, standard tests, and ordinary features. Default lane. |
+| High-complexity | GPT-5.6 Sol | `sol-implementer` | Correctness depends on judgment the spec cannot fully encode: concurrency, security-sensitive paths, non-trivial algorithms, hard debugging, wide refactors, or two failed corrected attempts in the routine lane. |
+| Review | Fable 5.1 | `fable-advisor` | Read-only advice at commitment boundaries and the mandatory end-of-deliverable review. |
 
-Deciding rule: how much does the outcome depend on judgment the spec can't capture? Little → the default codex lane; you will verify anyway. A lot, and mistakes are costly → escalate to `fable-implementer`, or keep that piece with the architect. A routine-lane task that fails its spec once gets a corrected spec; twice, it escalates to Fable — repetition is evidence the task was misclassified.
+The deciding question is how much the result depends on judgment the spec cannot capture. Little means Luna. A lot, with costly mistakes, means Sol. Give one corrected routine spec after the first miss; escalate only after the second miss shows the task was misclassified.
 
-The codex lane is also the cross-vendor half of the pattern: its output comes from a non-Anthropic family, so the Claude architect's verification and the Fable review are genuine cross-vendor checks, not same-family self-review.
+The lane determines the model. The architect determines reasoning effort per task. The user's global Codex config remains the fallback for omitted values, not the source of lane identity.
 
-If the codex lane returns `unavailable`, re-route the same spec to `fable-implementer` and say so explicitly in your report — never quietly absorb the substitution or the cost change. `timeout` is a sizing verdict, not a lane failure: split the spec (see "Task sizing" below) and re-delegate the pieces to the codex lane; escalate to `fable-implementer` only when a right-sized piece keeps failing for judgment reasons, not size. `refused` (exit 0, empty diff, polite decline) means codex declined the task itself — read the quoted REASON and fix its cause (usually a machine-wide instruction-file rule or a spec that asks codex to violate one); neither re-routing nor splitting fixes a refusal.
+Handle abnormal outcomes by cause:
 
-## The spec contract
+- `unavailable`: report the exact access, installation, or authentication error. Re-route only when the other lane is adequate, or transparently keep the work with the architect. Never silently substitute a model.
+- `timeout`: treat it as a sizing verdict. Split the piece and resume the same lane before considering a different capability tier. Sol is not a remedy for a bundled spec.
+- `refused`: read the quoted reason and fix the conflicting instruction or invalid request. Neither re-routing nor splitting cures a policy refusal.
+- `partial`: inspect what landed, verify it, and write a spec only for the coherent remainder.
 
-Implementers share none of your conversation context. Every delegation prompt carries all five parts:
+## Choosing reasoning effort
 
-1. **Objective** — what to build or change, one paragraph
+Pick the lowest rung adequate for the task. Effort changes cost and wall-clock behavior; it is not a dial to leave at maximum.
+
+| Rung | Luna | Sol | Typical use |
+|---|---|---|---|
+| `low` / `medium` | yes | yes | Renames, boilerplate, wiring, configuration, and tests that mirror an existing pattern |
+| `high` | yes | yes | Ordinary features with a few local design decisions |
+| `xhigh` | yes | yes | Tricky logic, interacting multi-file changes, or a second corrected attempt |
+| `max` | yes | yes | Concurrency, security-sensitive paths, and difficult debugging |
+| `ultra` | no | yes | Sol-only internal delegation for wide refactors or problems that resisted two attempts |
+
+If the requested rung is unsupported, the lane refuses instead of rounding. A missing `REASONING` line falls back to the user's Codex default and is reported in `GAPS`; that is acceptable only for trivial work, never for an escalation.
+
+The architect and advisor inherit Claude Code's session effort because their agent definitions pin none. Raise `/effort` before consequential architecture decisions or final reviews, then lower it for routine turns.
+
+## The six-part spec contract
+
+Implementers receive none of the architect's conversation context. Every delegation contains:
+
+1. **Objective** — the coherent outcome, in one paragraph
 2. **Files** — exact paths to create or modify
-3. **Interfaces** — signatures, types, or API shapes the code must match
-4. **Constraints** — project conventions, things not to touch
-5. **Verification** — the command(s) that prove it works
+3. **Interfaces** — signatures, types, schemas, or API shapes to preserve
+4. **Constraints** — conventions, boundaries, and things not to touch
+5. **Verification** — commands that prove the result
+6. **Reasoning** — exactly one line, `REASONING: <effort>`
 
-A spec you can't finish writing is a signal the decision isn't made yet — that's architect work, not a reason to hand the ambiguity to a cheaper model.
+A spec that cannot state all six parts is an undecided architecture problem, not implementation work.
 
-## Task sizing — keep codex calls short
+## Task sizing — keep Codex calls short
 
-Every codex-lane invocation runs under a hard wall clock (stock, a single Bash call dies at 10 minutes; this fork's install step raises the ceiling to 30 via `BASH_MAX_TIMEOUT_MS`, and the lane caps itself 60 s under whichever ceiling applies), and a frontier GPT tier at the top reasoning efforts the config pins spends minutes thinking before it types. An oversized spec does not come back slow — it comes back killed, with the reasoning you paid for spent on work that never lands. The raised ceiling turns a kill into an observed timeout; it does not make bundling free.
+Both implementation lanes drive one foreground `codex exec` at a time under a hard wall clock. The lane's inner timeout is derived as `BASH_MAX_TIMEOUT_MS / 1000 - 60`, so it fires before the Bash tool's outer kill and leaves a JSON log, session ID, final-message file, and partial disk state for diagnosis. Raising the ceiling creates headroom; it does not make bundling free.
 
-- **One deliverable per delegation.** Size each codex-bound spec so a single run finishes comfortably inside the cap — aim for about five minutes: one file, one cohesive change, or one module plus its test. If the objective needs "and then", it is two specs.
-- **Chain, don't bundle.** Related subtasks go out as sequential delegations, each restating the shared context and what earlier steps produced; independent ones launch in parallel. Merging results is cheap architect work; a timeout wastes the whole run.
-- **Order write-early-then-stop.** Every codex spec ends with: write the artifact to disk first, run the verification, then STOP — no exploration beyond the spec. Partial work on disk survives a kill; work held in context does not.
-- **A timeout means the task was too big.** Split it and re-delegate the pieces; never resend the same spec unchanged and hope.
+- **One cohesive deliverable per piece.** Aim for about five minutes on Luna and ten minutes on Sol. One file, one migration phase, or one module plus its tests is a useful boundary.
+- **Chain instead of bundle.** Related pieces run sequentially through `codex exec resume <session-id>`; independent pieces with no shared files may run in parallel.
+- **Write early, verify, then stop.** Every piece writes useful state before extended exploration, runs its named verification, and stops without expanding scope.
+- **Split a timeout.** Retry smaller halves in the same session. Do not resend the same oversized spec or switch models merely to buy more wall-clock time.
+- **Keep resume exact.** Capture `thread_id` from the JSON `thread.started` event. Resume inherits sandbox and working directory, so do not pass `--sandbox` or `--cd`; repeat the lane's model and the piece's effort because the CLI otherwise reloads global defaults. Use `--last` only when no concurrent Codex session can be mistaken for the target.
 
-The `fable-implementer` lane runs in-harness through many tool calls, so it does not share this single-call wall clock — the cap is a codex-lane (CLI) constraint.
+The recommended Claude Code environment is `BASH_DEFAULT_TIMEOUT_MS=600000` and `BASH_MAX_TIMEOUT_MS=1800000`. The runner must also set each Bash tool call's `timeout` parameter to the echoed ceiling; otherwise the tool can terminate before the inner timeout becomes observable.
 
 ## Parallelism
 
-Independent specs (no shared files, no ordering dependency) launch as parallel agents in a single message. Sequential chains and single-file surgery stay serial. For high-stakes work, run `codex-implementer` and `fable-implementer` on the same spec and let the architect pick the stronger diff — two model families, one judged result.
+Launch independent specs in parallel only when they share neither files nor ordering dependencies. Keep sequential chains and single-file surgery serial. For high-stakes work, Luna and Sol may independently attempt the same spec in isolated worktrees; never race two write-capable lanes in one working tree.
 
-## Commitment boundaries and the final review
+## Commitment boundaries and final review
 
-Consult `fable-advisor` (read-only, verdict in under 300 words) at the moments that decide whether the next hour is wasted:
+Consult `fable-advisor` before architecture choices, migrations, public API shapes, security-sensitive designs, wide refactors, and after two genuinely different failed attempts.
 
-- Before committing to an architecture, data migration, API shape, or refactor strategy
-- Whenever the same problem has resisted two distinct attempts
-- **Always, once, at the end of a deliverable** — the advisor reads the accumulated changes with fresh eyes, against the stated goal rather than the conversation, and returns ship / fix-first / rethink. The architect does not report done before this review.
+Always consult it once more at the end of a deliverable. Pass the stated goal, accumulated diff, verification evidence, and any unresolved concern. The architect must act on the verdict or explicitly surface a disagreement before reporting done.
 
-Pass it the decision (or, for final review, the diff and the stated goal), the constraints, and the options considered. Act on the verdict or surface the disagreement — never silently ignore it.
+The advisor and architect are the same model in separate contexts, so this is a fresh-eyes check rather than an independent-family review. Cross-vendor independence comes from the Codex lanes and, when installed, the optional Codex plugin.
 
-One honest caveat: when the deliverable came from `fable-implementer`, the reviewer and the implementer are the same model. The final review is still worth it — it reads the diff in a clean context, against the goal rather than the conversation — but it is a fresh-eyes check there, not an independent-model check. Cross-vendor independence comes from the codex lane.
+## Optional Codex plugin
+
+If `codex@openai-codex` is enabled in Claude Code:
+
+- Use `/codex:adversarial-review` before the Fable review for security-sensitive paths, migrations, and API changes. `/codex:review` is the lighter ordinary pass.
+- Use `/codex:rescue --model <slug> --effort <rung>` only when the user asks for that workflow or wants a background investigation. The architect still reads the diff and re-runs verification. Prefer the lanes when structured reports, empty-diff detection, or `max`/`ultra` effort is required.
+- Use `/codex:setup` to diagnose installation, version, or login failures.
+
+Leave the plugin's stop-time review gate disabled by default because it overlaps the mandatory advisor review and can loop. The plugin is optional; the lanes invoke the local Codex CLI directly.
 
 ## Verification
 
-Reports are claims, not evidence. Before accepting any lane's work: read the diff, and re-run the verification command (or spot-check its quoted output against the working tree). "Should work", "tests should pass", or a report with no command output means the task is not done. A lane that reports a spec gap gets a corrected spec, not a "use your judgment".
+Reports are claims, not evidence. Before accepting lane work, read the actual diff, compare it with the objective and constraints, and re-run the verification command. A clean exit with no requested diff is a refusal, not success. A spec gap receives a corrected spec, not an instruction to guess.

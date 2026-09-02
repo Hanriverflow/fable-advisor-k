@@ -1,7 +1,7 @@
 {
   "name": "fable-advisor-k",
   "metadata": {
-    "description": "Hanriverflow's patched fork of fable-advisor (codex-lane task sizing + timeout hardening: derived wall clocks, tree-kill escalation, corrected resume chains, config-SOT model policy). Upstream: DannyMac180/fable-advisor. Plugin name stays `fable-advisor`, so skill/agent invocations are unchanged."
+    "description": "Hanriverflow's hardened fork of fable-advisor: Fable 5.1 orchestration, GPT-5.6 Luna and Sol implementation lanes, per-task reasoning effort, and size-aware timeout/resume handling."
   },
   "owner": {
     "name": "Hanriverflow",
@@ -11,7 +11,7 @@
     {
       "name": "fable-advisor",
       "source": "./",
-      "description": "Opus architect-as-orchestrator: your session writes specs and verdicts, routing routine implementation to the machine-pinned GPT tier (Codex CLI, SOT ~/.codex/config.toml) and high-complexity one-offs to Fable 5 — with a mandatory Fable review before anything ships."
+      "description": "Fable 5.1 architect-as-orchestrator with GPT-5.6 Luna for routine work, GPT-5.6 Sol for hard one-offs, per-task reasoning effort, hardened Codex timeouts and resume chains, and a mandatory Fable 5.1 review before shipping."
     }
   ]
 }

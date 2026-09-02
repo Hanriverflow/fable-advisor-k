@@ -1,91 +1,108 @@
-# fable-advisor-k — delta vs upstream
+# fable-advisor-k — delta from upstream
 
-Fork of [DannyMac180/fable-advisor](https://github.com/DannyMac180/fable-advisor), carrying
-task-sizing and timeout-hardening patches for the codex lane. Plugin name stays `fable-advisor`
-so all skill/agent invocations (`/fable-advisor:orchestration`, `fable-advisor:codex-implementer`, …)
-are identical to upstream; only the marketplace/repo identity is `-k`.
+This repository is a hardened fork of [DannyMac180/fable-advisor](https://github.com/DannyMac180/fable-advisor). The plugin remains named `fable-advisor`, so skill and agent invocation names match upstream; only the marketplace and repository identity use `fable-advisor-k`.
 
-Tracks upstream through ad2bdc3 (2026-08-04: Luna repin + refusal detection). The refusal
-patch is kept as-is; the repin is superseded by this fork's config-SOT policy below.
+The current release is based on upstream `4d6cc62` (2026-09-02, v5.0.0 plus README demo assets) and adds the K patches described below. The fork release is `5.0.1`.
 
-## Why (measured, 2026-07 / structured-finance repo)
+## Upstream v5 integrated
 
-A single `codex exec` under Claude Code's Bash tool dies at the tool's wall clock
-(120 s default, 600 s stock maximum). A frontier GPT tier at high reasoning rabbit-holes
-on bundled specs: the same task took 23.3 min (timeout kill, work lost) as one monolith
-vs 8.1 min when decomposed with a STOP-scoped spec. Upstream v4 re-routes a timed-out
-monolith to the Fable lane — the most expensive model — instead of splitting it.
+- Fable 5.1 is the architect and clean-context final reviewer through the `fable` alias.
+- GPT-5.6 Luna is the routine implementation lane.
+- GPT-5.6 Sol replaces the old Fable implementation lane for judgment-heavy one-offs.
+- Every implementation spec has six parts, adding `REASONING: <effort>`.
+- Luna accepts efforts `low` through `max`; Sol additionally accepts `ultra`.
+- The optional official Codex plugin can provide adversarial review, ordinary review, rescue, and setup flows.
+- The upstream demo poster and video are included.
 
-## The patches
+The upstream README changes after the v5 functional commit contained a split Subscribe URL and a duplicated dash. This fork repairs both while adapting the README to the fork's installation and runtime policy.
 
-### v4.0.1 — task-sizing doctrine
+## Why the K patches exist
 
-`skills/orchestration/SKILL.md` (architect side):
-- **"Task sizing — keep codex calls short"**: one deliverable per delegation (~5-minute
-  pieces), chain instead of bundling, write-early-then-STOP spec tails.
-- Re-route rule split: `unavailable` → fable-implementer with the same spec (upstream
-  behavior); `timeout` → **split first**, re-delegate to codex, escalate only for
-  judgment failures, not size.
+A foreground `codex exec` launched inside a Claude Code Bash tool call is bounded twice: by an inner shell timeout when available and by the tool call's own wall clock. If the outer tool kills first, the wrapper loses the opportunity to classify the result, preserve concise diagnostics, and report partial work.
 
-`agents/codex-implementer.md` (lane side):
-- **"Size the work — sequence anything big"**: sequential short `codex exec` calls,
-  context carried between pieces via `codex exec resume <session-id>`.
-- Inner shell timeout fires 60 s before the Bash tool's own kill, so timeouts get
-  observed and reported (`STATUS: timeout` + partial work on disk) instead of killing
-  the wrapper mid-call.
-- Rules: "one invocation per task" → "invocations are sized, not counted".
+Measurements on the reference Windows/Git Bash machine in 2026-07 showed the cost of oversized specs: a bundled structured-finance task was killed after 23.3 minutes, while STOP-scoped pieces completed in 8.1 minutes total. The K policy therefore treats timeout primarily as a task-sizing signal, not a reason to buy a more expensive model.
 
-### v4.0.2 — timeout hardening + model policy (facts verified on the reference machine)
+## K patch 1 — task sizing and cause-specific recovery
 
-**Harness ceiling raised** (install step, `~/.claude/settings.json` env block):
-`BASH_DEFAULT_TIMEOUT_MS=600000`, `BASH_MAX_TIMEOUT_MS=1800000`. This removes the two
-real killers: the 120 s default that murders any codex call whose runner forgot the
-`timeout` parameter, and the 600 s stock ceiling that killed the measured 23-minute run.
-Applies to subagent Bash calls too (verified against code.claude.com/docs/en/env-vars).
+`skills/orchestration/SKILL.md` adds:
 
-**Invocation hardening** (`agents/codex-implementer.md`):
-- Inner cap derived, not hardcoded: `CAP = BASH_MAX_TIMEOUT_MS/1000 − 60` — stays
-  observable under any ceiling, stock or raised.
-- `timeout -k 10` TERM→KILL escalation. Verified empirically on the reference machine
-  (Git Bash / MSYS coreutils 8.32): the kill propagates through the npm shim's
-  `exec`'d node launcher to the native codex.exe — whole tree dies, no orphan keeps
-  writing to the repo. Fallback documented: `ps -W` for the Windows PID, then
-  `taskkill //PID <winpid> //T //F`.
-- **Resume corrected against the real CLI** (codex-cli 0.146.1): `codex exec resume`
-  rejects `--sandbox`/`--cd` (inherits both from the session) — the previous "same
-  flags" instruction was wrong. Session id is captured from the first event of the
-  `--json` stream (`thread.started` → `thread_id`; same UUID as the
-  `~/.codex/sessions/**/rollout-*-<uuid>.jsonl` filename), so `resume --last` is now
-  only a last-resort fallback, not the happy path. Live-verified 2026-08-08: id
-  capture (robust to stderr noise ahead of the first event) and an
-  `exec resume <id>` round-trip that recalled prior-turn context.
-- `--json > "$LOG"`: event stream goes to a temp file, not the runner's context —
-  session id + timeout forensics without paying tokens for the stream.
-- `--cd "$(pwd -W 2>/dev/null || pwd)"`: Windows-native path under Git Bash.
-- Report gains a `LANE:` line (model + effort from the run header) so the architect
-  sees what actually ran.
+- One cohesive deliverable per Codex piece: approximately five minutes for Luna and ten minutes for Sol.
+- Sequential resume chains for related pieces and parallel execution only for independent files in isolated write contexts.
+- Write-early, verify, then STOP tails so useful disk state survives a kill.
+- Cause-specific routing:
+  - `timeout` → split and retry in the same lane;
+  - `unavailable` → surface the access/install/auth error and transparently choose another adequate route;
+  - `refused` → fix the conflicting policy or invalid request;
+  - `partial` → verify what landed and delegate only the remainder.
 
-**Model policy — config is SOT** (diverges from upstream's per-file model pins):
-the lane passes **no** `--model` / `-c model_reasoning_effort` flags; `~/.codex/config.toml`
-(maintained at the latest tier by the machine owner) governs. Upstream repins
-(Sol→Luna→…) no longer need merging into flag lines, and stale slugs can't break the
-lane when tiers rotate. A caller's spec may still pin a model/effort per piece.
-Upstream's AGENTS.md-refusal patch (spec preamble + `STATUS: refused` + empty-diff
-rule) is kept, with the preamble reworded for config-SOT.
+Both implementation agents repeat the sizing rule locally because they receive no architect conversation context.
 
-Considered and rejected: running codex via Bash `run_in_background` (works in
-subagents, but swaps a verified foreground cap for notification-timing mechanics and
-loses the inner-timeout observation), and a PreToolUse `updatedInput` hook forcing the
-`timeout` parameter (solved more simply by raising `BASH_DEFAULT_TIMEOUT_MS`, which
-covers forgotten parameters everywhere, not just matched commands).
+## K patch 2 — observable timeout and resumable execution
+
+Both `agents/codex-implementer.md` and `agents/sol-implementer.md` use the same hardened execution pattern:
+
+- Recommended Claude Code environment:
+
+  ```json
+  {
+    "env": {
+      "BASH_DEFAULT_TIMEOUT_MS": "600000",
+      "BASH_MAX_TIMEOUT_MS": "1800000"
+    }
+  }
+  ```
+
+- The runner must set the Bash tool call's timeout parameter to the echoed `BASH_MAX_TIMEOUT_MS` value.
+- The inner cap is derived as `BASH_MAX_TIMEOUT_MS / 1000 - 60`, leaving a one-minute observation window before the outer kill.
+- `timeout -k 10` escalates TERM to KILL. On the reference machine, MSYS coreutils propagated the kill through the npm/node launcher to the native Codex process tree.
+- Exit codes 124 and 137 are both recognized as timeout outcomes.
+- `--json` is redirected to a unique temporary log instead of filling the wrapper's context.
+- The session ID is parsed specifically from the `thread.started` event's `thread_id`, rather than taking the first UUID-like string in mixed stdout/stderr.
+- Later pieces use `codex exec resume <session-id>`. Resume does not receive `--sandbox` or `--cd`; it inherits both from the original session. The lane model and piece effort are passed again because resume reloads global defaults for them.
+- `resume --last` is a last-resort fallback only when no concurrent Codex run could be selected accidentally.
+- `pwd -W` supplies a Windows-native working path under Git Bash, with plain `pwd` elsewhere.
+- Reports state the lane model and effort actually passed on the command. An omitted effort is labeled `configured default` rather than guessed.
+
+The resume chain was live-tested with Codex CLI 0.146.1 on 2026-08-08. On 2026-09-03, Codex CLI 0.152.1 help was rechecked: `exec` still supports `--model`, `--config`, `--sandbox`, `--cd`, `--json`, and `--output-last-message`; `exec resume` still accepts a session ID, `--config`, `--model`, `--json`, and `--output-last-message`, while exposing neither `--sandbox` nor `--cd`. A live Luna resume without `--model` reloaded the machine's global Sol default and emitted a model-switch warning, which is why both lane recipes repeat `--model` explicitly. A fresh Luna chain with the explicit model resumed without that warning and recalled its prior-turn token correctly.
+
+## K patch 3 — lane model and effort policy
+
+The v4 K fork used one machine-wide `~/.codex/config.toml` as the source of truth for both model and effort. That policy cannot represent two simultaneous v5 lane identities: with a global Sol pin, the routine and escalation agents would both run Sol.
+
+Starting with v5.0.1:
+
+- `codex-implementer` explicitly selects `gpt-5.6-luna`.
+- `sol-implementer` explicitly selects `gpt-5.6-sol`.
+- The architect selects effort per piece through the required `REASONING` spec line.
+- A missing effort line falls back to the user's Codex configuration and is recorded in `GAPS`; it is not acceptable for an escalation.
+- A lane never changes models on its own. A model change is an architect routing decision.
+
+This deliberately retires the v4 single-config SOT. It preserves predictable lane semantics and lets routine work run at lower effort instead of inheriting an expensive global default.
+
+## Refusal and evidence rules retained
+
+The upstream 2026-08-04 refusal detection remains in both lanes:
+
+- A scoped preamble opts the dedicated lane out of conflicting default orchestration rules while preserving all unrelated instructions.
+- A clean process exit is not evidence of work.
+- An empty requested diff is `STATUS: refused`, never `complete`.
+- The wrapper reads the actual diff, re-runs verification, and compares Codex's final message with disk state.
 
 ## Maintenance
 
-- This clone was created shallow by the plugin installer; it has been `--unshallow`ed
-  so upstream merges work. If you re-clone, run
-  `git fetch --unshallow origin && git remote add upstream https://github.com/DannyMac180/fable-advisor.git`.
-- Upstream release → `git fetch upstream && git merge upstream/main`, resolve
-  (expect conflicts in plugin.json version and, if upstream touches them, the two
-  patched files — upstream model repins resolve to "no flags, config is SOT"),
-  bump patch version, push, `claude plugin update fable-advisor@fable-advisor-k`.
-- Version scheme: upstream X.Y.0 → this fork ships X.Y.1 (and +1 per local fix).
+The clone has a named `upstream` remote:
+
+```bash
+git fetch upstream
+git merge upstream/main
+```
+
+When resolving future upstream changes:
+
+1. Keep the fork marketplace name, owner, homepage, and installation commands.
+2. Preserve the upstream Fable/Luna/Sol architecture and effort table unless model capabilities change.
+3. Preserve K sizing, derived timeout, JSON logging, session-ID parsing, resume, and cause-specific recovery in both Codex lanes.
+4. Update this file's upstream commit and CLI verification note.
+5. Run `claude plugin validate .`, JSON parsing, stale-reference searches, and a live low-effort smoke test before release.
+
+Versioning: an upstream `X.Y.0` becomes the first K release `X.Y.1`; subsequent K-only fixes increment the patch number.

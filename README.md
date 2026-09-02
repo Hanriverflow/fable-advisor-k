@@ -1,19 +1,34 @@
 # fable-advisor-k
 
-> 이 저장소는 업스트림 `DannyMac180/fable-advisor`의 패치 fork입니다. 플러그인의 `name`은 `fable-advisor` 그대로이므로 호출명(`/fable-advisor:orchestration`, `fable-advisor:codex-implementer` 등)도 업스트림과 동일하게 유지됩니다.
+> [DannyMac180/fable-advisor](https://github.com/DannyMac180/fable-advisor)의 hardened fork입니다. 플러그인 이름은 `fable-advisor` 그대로이므로 `/fable-advisor:orchestration`, `fable-advisor:codex-implementer` 같은 호출명은 업스트림과 같습니다. 마켓플레이스와 저장소 이름만 `fable-advisor-k`입니다.
 
-## 이 fork가 다른 점
+**Fable 5.1이 설계하고, Luna와 Sol이 작업별 effort로 구현하며, Fable 5.1이 출고 전 검토합니다. K fork는 이 흐름에 작업 분할, 관측 가능한 timeout, 안전한 resume 체인을 추가합니다.**
 
-- `codex` 레인에 맡길 스펙을 하나의 위임당 하나의 산출물, 약 5분 분량으로 나누며 여러 산출물을 한 번에 묶지 않습니다.
-- timeout을 레인 장애가 아니라 "작업이 너무 크다"는 크기 판정 신호로 취급합니다. timeout이 난 통스펙을 Fable 레인으로 재라우팅하는 업스트림 v4와 달리, 이 fork는 스펙을 분할한 뒤 `codex`로 재위임합니다.
-- 큰 작업은 `codex exec resume <session-id>` 체인으로 짧은 호출들을 순차 연결하여 처리합니다. 세션 id는 `--json` 이벤트 스트림의 첫 이벤트에서 추출하며(`resume --last`는 최후 폴백), `resume`이 `--sandbox`/`--cd`를 받지 않는다는 실제 CLI(0.146.1) 동작에 맞게 호출을 교정했습니다.
-- **모델·effort 플래그를 전달하지 않습니다.** `~/.codex/config.toml`이 SOT입니다(머신 소유자가 최신 티어로 유지). 업스트림의 모델 재핀(Sol→Luna→…)을 플래그에 병합할 필요가 없고, 티어가 바뀌어도 낡은 슬러그로 레인이 깨지지 않습니다.
-- shell timeout은 하드코딩(540초) 대신 **Bash tool 상한 − 60초로 유도 계산**되어, 어떤 상한에서도 timeout이 관측·보고됩니다(`STATUS: timeout` + 디스크에 남은 부분 작업). `timeout -k 10`으로 TERM→KILL 에스컬레이션하며, Git Bash(MSYS)에서 프로세스 트리 전체가 죽는 것을 실험으로 확인했습니다.
-- 설치 단계에서 `BASH_DEFAULT_TIMEOUT_MS`/`BASH_MAX_TIMEOUT_MS`를 올려(아래 참조) 120초 기본 kill과 600초 상한을 함께 제거합니다.
-- 업스트림 2026-08-04 패치(무음 거부 감지: 스펙 preamble + `STATUS: refused` + "빈 diff는 complete가 아니다" 규칙)를 병합해 유지합니다.
-- 2026-07 `structured-finance` 저장소에서 동일 작업을 측정한 결과, 통스펙은 23.3분 만에 timeout으로 kill되어 작업이 유실됐지만, 분해한 STOP-scoped 스펙은 8.1분 만에 완료됐습니다.
+<a href="https://github.com/Hanriverflow/fable-advisor-k/raw/main/assets/fable-advisor-demo.mp4"><img src="assets/fable-advisor-demo-poster.png" alt="30-second demo: Fable 5.1 orchestrates, GPT-5.6 Luna implements, Fable 5.1 reviews" width="100%"></a>
 
-상세 내용은 [PATCHES-K.md](PATCHES-K.md)를 참고하십시오.
+<p align="center"><em>▶ 30초 데모 — Fable 5.1 설계 → GPT-5.6 Luna 구현 → Fable 5.1 검토</em></p>
+
+## 구조
+
+| Lane | Producer | 호출 | 사용 시점 |
+|---|---|---|---|
+| Routine | **GPT-5.6 Luna** | `codex-implementer` | 스펙이 결과를 충분히 결정하는 일반 구현, wiring, CRUD, 기계적 수정, 표준 테스트 |
+| High-complexity | **GPT-5.6 Sol** | `sol-implementer` | 동시성, 보안, 비정형 알고리즘, 어려운 디버깅, 넓은 refactor, 또는 Luna의 교정된 시도 두 번이 실패한 작업 |
+| Review | **Fable 5.1** | `fable-advisor` | 주요 설계 결정을 내리기 전과 모든 deliverable의 최종 검토 |
+
+모델은 lane이 결정하고, architect는 스펙의 여섯 번째 항목인 `REASONING: <effort>`로 작업별 effort를 결정합니다. Luna는 `low`부터 `max`, Sol은 `low`부터 `ultra`까지 지원합니다. 전역 `~/.codex/config.toml`은 누락된 값의 fallback일 뿐 lane 정체성의 source of truth가 아닙니다.
+
+## K fork가 추가하는 것
+
+- **작업 크기 제한:** 한 번의 위임에는 한 개의 응집된 산출물만 담습니다. Luna는 약 5분, Sol은 약 10분 안에 유용한 결과를 디스크에 쓰도록 분해합니다.
+- **원인별 복구:** `timeout`은 모델 실패가 아니라 작업 크기 신호로 취급해 같은 lane에서 먼저 분할합니다. `unavailable`, `refused`, `partial`은 각각 다른 원인으로 처리합니다.
+- **resume 체인:** 관련 조각은 `codex exec resume <session-id>`로 순차 연결합니다. `thread.started` JSON 이벤트의 `thread_id`를 사용하고 lane 모델과 조각 effort를 다시 명시합니다. `resume --last`는 동시 세션이 없을 때만 최후 수단으로 사용합니다.
+- **관측 가능한 timeout:** 내부 cap을 `BASH_MAX_TIMEOUT_MS / 1000 - 60`으로 계산하고 `timeout -k 10`으로 TERM→KILL을 수행합니다. 외부 Bash tool이 먼저 종료하지 않도록 해당 tool call의 timeout도 같은 상한으로 설정합니다.
+- **진단 가능한 실행:** Codex의 JSON 이벤트와 마지막 메시지를 임시 파일에 보존하고, rc 124와 137을 timeout으로 식별합니다. 보고서에는 실제 명령에 전달한 lane 모델과 effort를 적고, effort를 생략했다면 추측하지 않고 `configured default`로 표시합니다.
+- **Windows/Git Bash 대응:** 최초 실행의 working directory는 `pwd -W`가 있으면 Windows-native 경로를 사용합니다. Resume에는 CLI가 받지 않는 `--sandbox`와 `--cd`를 전달하지 않되, 전역 기본값으로 바뀔 수 있는 모델과 effort는 다시 전달합니다.
+- **무음 거부 감지:** `exit 0`이어도 요청한 diff가 비어 있으면 성공이 아니라 `STATUS: refused`로 처리합니다.
+
+상세한 업스트림 대비 변경 이력은 [PATCHES-K.md](PATCHES-K.md)에 있습니다.
 
 ## 설치
 
@@ -22,141 +37,106 @@ claude plugin marketplace add Hanriverflow/fable-advisor-k
 claude plugin install fable-advisor@fable-advisor-k
 ```
 
-그리고 `~/.claude/settings.json`의 `env` 블록에 Bash tool 상한 인상을 추가하십시오 (codex 레인의 wall clock이 이 값에서 유도됩니다):
+Claude Code의 `~/.claude/settings.json`에서 Bash tool의 기본 및 최대 실행시간을 올리는 것을 권장합니다.
 
 ```json
-"env": {
-  "BASH_DEFAULT_TIMEOUT_MS": "600000",
-  "BASH_MAX_TIMEOUT_MS": "1800000"
+{
+  "env": {
+    "BASH_DEFAULT_TIMEOUT_MS": "600000",
+    "BASH_MAX_TIMEOUT_MS": "1800000"
+  }
 }
 ```
 
-업스트림 원본(`fable-advisor@fable-advisor`)을 이미 설치해 사용 중이었다면 기존 마켓플레이스를 먼저 제거하십시오.
+그다음 architect 세션을 시작합니다.
+
+```text
+/model fable
+```
+
+이미 업스트림 marketplace를 설치했다면 이름 충돌을 피하기 위해 먼저 제거합니다.
 
 ```bash
 claude plugin uninstall fable-advisor@fable-advisor
 claude plugin marketplace remove fable-advisor
 ```
 
-## grok 레인
+## 업데이트
 
-업스트림 v4는 `grok` 레인을 제거했습니다. 필요하면 upstream v3.1 트리의 [`grok-implementer.md`](https://github.com/DannyMac180/fable-advisor/blob/b3b50a9/agents/grok-implementer.md)를 `~/.claude/agents/`에 개인 에이전트로 두어 v4 라우팅과 공존시킬 수 있습니다.
+```bash
+claude plugin marketplace update fable-advisor-k
+claude plugin update fable-advisor@fable-advisor-k
+```
+
+업데이트 후에는 Claude Code를 재시작해야 새 agent와 skill이 로드됩니다.
+
+## 요구사항
+
+- **Claude Code 2.1.170 이상**과 Fable 5.1을 사용할 수 있는 구독. Agent는 `model: fable` alias를 사용합니다.
+- **OpenAI Codex CLI** 설치 및 로그인. 두 구현 lane 모두 `codex exec`를 사용합니다.
+
+```bash
+npm i -g @openai/codex
+codex login
+```
+
+Luna나 Sol에 접근할 수 없거나 CLI 인증이 실패하면 lane은 `STATUS: unavailable`과 실제 오류를 반환하며 다른 모델로 조용히 대체하지 않습니다. Fable을 사용할 수 없는 API-key 환경이라면 `agents/fable-advisor.md`의 `model: fable`을 `model: opus`로 바꾸고 세션도 Opus에서 실행할 수 있습니다.
+
+## 사용
+
+일반 요청을 하면 orchestration skill이 lane과 effort를 선택하고, 결과 diff와 verification evidence를 검토한 뒤 `fable-advisor`의 최종 verdict를 받습니다.
+
+```text
+공개 API에 rate limiting을 추가해. 설계하고, 적절한 lane과 effort로
+구현을 위임하고, 검증 evidence와 최종 review까지 확인한 뒤 완료해.
+```
+
+프로젝트의 `CLAUDE.md`에 다음 규칙을 두면 이 패턴을 항상 적용할 수 있습니다.
+
+```text
+You are the architect. Use the orchestration skill to delegate implementation,
+name a reasoning effort for every task, keep Codex calls small and resumable,
+verify the actual diff and commands, and obtain a fable-advisor review before
+reporting any deliverable complete.
+```
+
+## 선택 사항: 공식 Codex plugin
+
+[OpenAI Codex plugin for Claude Code](https://github.com/openai/codex-plugin-cc)은 필수 의존성이 아니지만 독립 모델 review와 진단 흐름을 추가할 수 있습니다.
+
+```text
+/plugin marketplace add openai/codex-plugin-cc
+/plugin install codex@openai-codex
+```
+
+- 보안, migration, API 변경에는 Fable 검토 전에 `/codex:adversarial-review`를 사용할 수 있습니다.
+- 일반 변경에는 `/codex:review`, 설치와 로그인 문제에는 `/codex:setup`을 사용할 수 있습니다.
+- `/codex:rescue`는 사용자가 background workflow를 원할 때만 사용합니다. Architect는 여전히 diff를 읽고 verification을 다시 실행해야 합니다.
+- stop-time review gate는 필수 Fable review와 중복되어 loop가 생길 수 있으므로 기본적으로 켜지 않습니다.
+
+## Advisor-only와 fallback
+
+전체 orchestration이 필요 없다면 `agents/fable-advisor.md`만 개인 agent 디렉터리에 복사해 advisor-only 방식으로 사용할 수 있습니다. v5에서는 기본 high-complexity lane이 Sol이며, 예전 Claude 구현 lane은 제거되었습니다. Codex를 사용할 수 없을 때 Claude 구현 agent가 꼭 필요하면 [업스트림 v4의 `fable-implementer.md`](https://github.com/DannyMac180/fable-advisor/blob/ad2bdc3/agents/fable-implementer.md)를 별도 fallback agent로 설치하십시오. 자동 fallback으로 연결하지는 마십시오.
 
 ## 업스트림 동기화
 
-1. `git fetch upstream && git merge upstream/main`
-2. 충돌을 해결합니다. 대상은 `.claude-plugin/plugin.json`의 버전과, 업스트림이 수정했다면 패치된 두 파일 `skills/orchestration/SKILL.md`, `agents/codex-implementer.md`입니다.
-3. 버전을 bump합니다. 업스트림이 X.Y.0을 내면 이 fork는 X.Y.1로 올리고, 로컬 수정마다 1씩 더합니다.
-4. push한 뒤 `claude plugin update fable-advisor@fable-advisor-k`를 실행합니다.
-
----
-
-*이하는 업스트림 README 원문(v4.0.0 + 2026-08-04 ad2bdc3 반영). 모델·effort 표기는 업스트림 기준이며, 이 fork에서는 위의 config-SOT 정책이 우선합니다.*
-
-# Fable Advisor
-
-**Opus runs the show. Cheaper typing, smarter escalation, and a Fable review before anything ships.**
-
-Claude Code lets every subagent run on a different model — and lets the session itself run on a different model than its subagents. This plugin exploits that with the **architect pattern**: your session runs on **Opus**, acting as a full-time architect. It owns requirements, decomposition, specs, and verification — routes every implementation task to the right lane — and gets a **Fable 5** review of the finished work before calling anything done:
-
-| Lane | Producer | Invocation | Route here when |
-|---|---|---|---|
-| Routine | **GPT-5.6 Luna** (max reasoning) | `codex-implementer` agent (default) | The spec fully determines the outcome — Codex does the typing via the [Codex CLI](https://github.com/openai/codex) |
-| High-complexity | **Fable 5** | `fable-implementer` agent | One-off tasks where judgment the spec can't capture decides the outcome: subtle concurrency, hard debugging, security-sensitive paths, wide refactors |
-| Review | **Fable 5** | `fable-advisor` agent | Commitment boundaries, and **always once at the end** — the advisor reviews the accumulated changes before the architect reports done |
-
-Tokens route by capability: Opus emits judgment and specs, the cheap cross-vendor lane emits the bulk of the code, and Fable — the most expensive model available — is spent only where it changes outcomes: the hardest implementations and the final review. Because the routine lane is a *different model family* than the architect, cross-vendor review is built into the routing, not bolted on. For high-stakes work, run `codex-implementer` and `fable-implementer` on the same spec and let the architect pick the stronger diff.
-
-The plugin ships the **orchestration skill** — the routing doctrine that teaches the session when to use each lane, the cost discipline that keeps expensive-model token volume minimal (emit judgment not volume, keep context lean, reason once then hand off), the five-part spec contract that makes context-free delegation safe, and the verification rules that keep every lane honest.
-
-## Install
-
-```
-claude plugin marketplace add DannyMac180/fable-advisor
-claude plugin install fable-advisor@fable-advisor
+```bash
+git fetch upstream
+git merge upstream/main
 ```
 
-Updating an existing installation to the latest release:
+충돌 해결 시 다음 원칙을 유지합니다.
 
-```
-claude plugin marketplace update fable-advisor
-claude plugin update fable-advisor@fable-advisor
-```
+1. marketplace 이름, owner, homepage는 K fork 값을 유지합니다.
+2. 모델은 Luna/Sol lane이, effort는 six-part spec이 결정합니다.
+3. 두 Codex lane 모두 K fork의 sizing, derived timeout, JSON log, session ID, resume 규칙을 유지합니다.
+4. `timeout`은 먼저 분할하고, `unavailable`과 `refused`는 원인에 맞게 처리합니다.
+5. `PATCHES-K.md`의 기준 커밋과 검증한 CLI 버전을 갱신합니다.
 
-Then start your session as the architect:
+## 배경과 저자
 
-```
-/model opus
-```
+원 프로젝트와 architect pattern은 Dan McAteer가 만들었습니다. 저자의 [Attention Heads](https://attentionheads.substack.com/?utm_source=github&utm_medium=readme&utm_campaign=fable-advisor)에는 agentic engineering 관련 글이 있습니다. [구독 링크](https://attentionheads.substack.com/subscribe?utm_source=github&utm_medium=readme&utm_campaign=fable-advisor)도 참고할 수 있습니다.
 
-**Lite mode — one file, 30 seconds.** Don't want the full pattern? Copy [`agents/fable-advisor.md`](agents/fable-advisor.md) into `~/.claude/agents/` and keep your session on Sonnet. You get advisor consults at commitment boundaries without the orchestration layer (see "Advisor-only mode" below).
-
-## Requirements
-
-- **Claude Code ≥ 2.1.170** with a subscription that includes Fable 5 (Pro, Max, Team, or Enterprise — all current consumer plans qualify).
-- **No Fable access** (e.g. API-key billing)? Change `model: fable` → `model: opus` in the advisor and implementer files. Same pattern, the Fable roles shift down to Opus.
-- **Codex lane (the default implementer):** the `codex-implementer` agent needs the [OpenAI Codex CLI](https://github.com/openai/codex) installed and authenticated (`npm i -g @openai/codex`, then `codex login`). It invokes **GPT-5.6 Luna** as `gpt-5.6-luna` with `model_reasoning_effort=max`. GPT-5.6 access may be limited during preview; without model access, an installed/authenticated CLI, or successful authentication, the agent reports `STATUS: unavailable` — it never silently falls back to a Claude model — and the Fable lanes remain unaffected.
-- Heads-up: if a pinned Claude model isn't available on your account, Claude Code silently falls back to your session model — the pattern degrades quietly rather than erroring. If results feel unremarkable, check your plan. (This quiet fallback applies only to Claude model pins — the codex lane always fails loudly with a structured error.)
-
-Model resolution order in Claude Code: `CLAUDE_CODE_SUBAGENT_MODEL` env var → per-invocation `model` parameter → agent frontmatter → session model.
-
-## Use it
-
-With the session on Opus, just ask for work — the orchestration skill routes it:
-
-```
-Add rate limiting to our public API. Design it, delegate the
-implementation, and verify the evidence before you call it done.
-```
-
-The architect writes the spec, picks the lane (rate limiting touches concurrency — a good case for `fable-implementer`, or for racing it against `codex-implementer` and picking the stronger diff), reads the diff and verification evidence when the report comes back, sends the finished work to `fable-advisor` for the final review, and only then reports done.
-
-To make the doctrine always-on, add one line to your project's `CLAUDE.md`:
-
-```
-You are the architect — minimize your own token volume. Delegate all
-implementation through the orchestration skill's routing table (never
-type code yourself), delegate broad codebase exploration to cheap
-read-only agents, verify evidence before accepting any lane's report,
-and get a fable-advisor review before reporting any deliverable done.
-```
-
-## Commitment boundaries and the final review
-
-Even the architect gets a second opinion. The `fable-advisor` agent is a read-only skeptic — consulted before architecture decisions, migrations, API designs, whenever a problem has resisted two attempts, and **always once at the end of a deliverable**, where it reads the accumulated diff with fresh eyes, against the stated goal rather than the conversation, and returns ship / fix-first / rethink. It never implements. It sees the code fresh, without your conversation's accumulated assumptions — that context-clean skepticism is what the final review buys.
-
-## Advisor-only mode (the original pattern)
-
-The minimal arrangement, for when you'd rather skip the orchestration layer: run the session on Sonnet and consult `fable-advisor` only at commitment boundaries.
-
-```
-Migrate our checkout sessions from Postgres to Redis — plan it,
-consult your advisor before committing, then implement.
-```
-
-A typical consult costs cents. To make it automatic, add to your project's `CLAUDE.md`:
-
-```
-Before committing to any architecture decision, migration, or refactor
-touching 3+ files, consult the fable-advisor agent and act on its verdict.
-```
-
-## FAQ
-
-**Is this Anthropic's "advisor tool"?** No — that's a server-side API feature. These are plain Claude Code subagents plus a skill: readable, editable, no beta flags.
-
-**Does this work on claude.ai?** No — subagent model routing is Claude Code only (CLI, desktop, VS Code, web).
-
-**Why not just run everything on Fable?** You can. It's excellent. It's also the most expensive lane per token, and most of a session's tokens are orchestration and implementation mechanics that Opus and the codex lane handle at near-parity. Spend the premium where it changes outcomes: the hardest tasks and the final review.
-
-**Upgrading from v3?** v4 restructures the routing: the session architect moves from Fable to **Opus**, the Grok 4.5 lane is **removed**, `codex-implementer` (the Codex lane) becomes the default typing lane, and Fable's premium is refocused on the new `fable-implementer` high-complexity lane plus a now-mandatory end-of-deliverable `fable-advisor` review. If you still want the Grok lane, grab [`grok-implementer.md` from the v3.1 tree](https://github.com/DannyMac180/fable-advisor/blob/b3b50a9/agents/grok-implementer.md).
-
-**Why a GPT lane in a Claude plugin?** Vendor diversity. Models from one family share blind spots; an independent implementation from a different lineage catches what same-family review misses — and with Claude as the architect and reviewer, every routine diff gets cross-vendor review for free. The architect and reviewer stay Claude — the routine lane is a producer, not a judge.
-
-## Go deeper
-
-I write [**Attention Heads**](https://attentionheads.substack.com/?utm_source=github&utm_medium=readme&utm_campaign=fable-advisor) — deep, evidence-backed writing on AI, cognition, and agentic engineering. The **Agentic Engineering Field Notes** series is where I publish practical advice on the craft of using AI. [Subscribe](https://attentionheads.substack.com/subscribe?utm_source=github&utm_medium=readme&utm_campaign=fable-advisor) to get new posts to your inbox.
-
-## License
+## 라이선스
 
 MIT
