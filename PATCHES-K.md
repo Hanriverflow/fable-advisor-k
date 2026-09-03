@@ -2,7 +2,9 @@
 
 This repository is a hardened fork of [DannyMac180/fable-advisor](https://github.com/DannyMac180/fable-advisor). The plugin remains named `fable-advisor`, so skill and agent invocation names match upstream; only the marketplace and repository identity use `fable-advisor-k`.
 
-The current release is based on upstream `4d6cc62` (2026-09-02, v5.0.0 plus README demo assets) and adds the K patches described below. The fork release is `5.0.1`.
+The current release is based on upstream `4d6cc62` (2026-09-02, v5.0.0 plus README demo assets) and adds the K patches described below. The fork release is `5.0.2`.
+
+`5.0.1` (tag, commit `1168193`) shipped the initial v5 lane split but still reported unsupported effort as `STATUS: unavailable` instead of `refused`, had no non-timeout classification rule, and had no temp-artifact retention policy or local validator. `5.0.2` (this release) is the first tag whose content matches `PROJECT_IMPROVEMENT_REPORT.md`'s "완료" claims: the `refused`/`unavailable` conflict, non-timeout classification, and artifact retention policy described in K patch 1 and K patch 2 below, plus `tools/validate_repo.py` and its regression tests. Re-tag instead of reusing a version number once a tag has been pushed.
 
 ## Upstream v5 integrated
 

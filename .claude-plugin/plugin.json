@@ -1,6 +1,6 @@
 {
   "name": "fable-advisor",
-  "version": "5.0.1",
+  "version": "5.0.2",
   "description": "Run Fable 5.1 as the architect: it selects a lane and reasoning effort per task, GPT-5.6 Luna handles routine implementation, GPT-5.6 Sol handles hard one-offs, and hardened timeout/resume handling keeps Codex work observable before Fable 5.1 reviews the result.",
   "author": {
     "name": "Dan McAteer",
