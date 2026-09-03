@@ -26,7 +26,8 @@ Measurements on the reference Windows/Git Bash machine in 2026-07 showed the cos
 
 `skills/orchestration/SKILL.md` adds:
 
-- One cohesive deliverable per Codex piece: approximately five minutes for Luna and ten minutes for Sol.
+- One independently verifiable, cohesive deliverable per Codex piece. Logical boundaries outrank clock targets: do not split mid-function, between a schema and its consumer, or at an otherwise untestable state.
+- Approximately five minutes for Luna and ten minutes for Sol are time-to-durable-checkpoint targets, not forced stop times. With the recommended 1,800-second ceiling, a cohesive Sol piece may continue for 15–20 minutes to reach its logical boundary; the stock 600-second ceiling still requires every piece to stay comfortably below its 540-second inner cap.
 - Sequential resume chains for related pieces and parallel execution only for independent files in isolated write contexts.
 - Write-early, verify, then STOP tails so useful disk state survives a kill.
 - Cause-specific routing:
@@ -62,6 +63,9 @@ Both `agents/codex-implementer.md` and `agents/sol-implementer.md` use the same 
 - `resume --last` is a last-resort fallback only when no concurrent Codex run could be selected accidentally.
 - `pwd -W` supplies a Windows-native working path under Git Bash, with plain `pwd` elsewhere.
 - Reports state the lane model and effort actually passed on the command. An omitted effort is labeled `configured default` rather than guessed.
+- Unsupported effort is `refused`, with the invalid value and supported set in `GAPS`. `unavailable` covers installation, authentication, access, model-availability, and unclassified nonzero/no-change failures; the unclassified case must be diagnosed before re-routing.
+- Non-timeout failures are classified from the observed cause and verified disk state. An unknown nonzero exit with no verified requested change is `unavailable` and requires diagnosis before re-routing; its code and useful log tail remain in `GAPS`.
+- A verified `complete` result deletes every sequenced piece's temporary files. Other statuses delete all specs, retain every piece's final-message file and JSON log, and report those absolute paths in `ARTIFACTS`.
 
 The resume chain was live-tested with Codex CLI 0.146.1 on 2026-08-08. On 2026-09-03, Codex CLI 0.152.1 help was rechecked: `exec` still supports `--model`, `--config`, `--sandbox`, `--cd`, `--json`, and `--output-last-message`; `exec resume` still accepts a session ID, `--config`, `--model`, `--json`, and `--output-last-message`, while exposing neither `--sandbox` nor `--cd`. A live Luna resume without `--model` reloaded the machine's global Sol default and emitted a model-switch warning, which is why both lane recipes repeat `--model` explicitly. A fresh Luna chain with the explicit model resumed without that warning and recalled its prior-turn token correctly.
 
@@ -103,6 +107,7 @@ When resolving future upstream changes:
 2. Preserve the upstream Fable/Luna/Sol architecture and effort table unless model capabilities change.
 3. Preserve K sizing, derived timeout, JSON logging, session-ID parsing, resume, and cause-specific recovery in both Codex lanes.
 4. Update this file's upstream commit and CLI verification note.
-5. Run `claude plugin validate .`, JSON parsing, stale-reference searches, and a live low-effort smoke test before release.
+5. Run `uv run tools/validate_repo.py .`, `uv run --with pytest python -m pytest -q tests/test_validate_repo.py`, and `claude plugin validate .`.
+6. Run a live low-effort smoke test before release; keep authenticated model calls outside the deterministic local validator.
 
 Versioning: an upstream `X.Y.0` becomes the first K release `X.Y.1`; subsequent K-only fixes increment the patch number.

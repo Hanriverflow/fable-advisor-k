@@ -16,15 +16,16 @@
 | High-complexity | **GPT-5.6 Sol** | `sol-implementer` | 동시성, 보안, 비정형 알고리즘, 어려운 디버깅, 넓은 refactor, 또는 Luna의 교정된 시도 두 번이 실패한 작업 |
 | Review | **Fable 5.1** | `fable-advisor` | 주요 설계 결정을 내리기 전과 모든 deliverable의 최종 검토 |
 
-모델은 lane이 결정하고, architect는 스펙의 여섯 번째 항목인 `REASONING: <effort>`로 작업별 effort를 결정합니다. Luna는 `low`부터 `max`, Sol은 `low`부터 `ultra`까지 지원합니다. 전역 `~/.codex/config.toml`은 누락된 값의 fallback일 뿐 lane 정체성의 source of truth가 아닙니다.
+모델은 lane이 결정하고, architect는 스펙의 여섯 번째 항목인 `REASONING: <effort>`로 작업별 effort를 결정합니다. Luna는 `low`부터 `max`, Sol은 `low`부터 `ultra`까지 지원합니다. 지원하지 않는 effort는 접근 실패가 아니라 잘못된 spec이므로 `STATUS: refused`로 반환하며 다른 lane으로 자동 전환하지 않습니다. 전역 `~/.codex/config.toml`은 누락된 값의 fallback일 뿐 lane 정체성의 source of truth가 아닙니다.
 
 ## K fork가 추가하는 것
 
-- **작업 크기 제한:** 한 번의 위임에는 한 개의 응집된 산출물만 담습니다. Luna는 약 5분, Sol은 약 10분 안에 유용한 결과를 디스크에 쓰도록 분해합니다.
+- **논리적 경계 우선:** 한 번의 위임에는 독립적으로 검증 가능한 응집된 산출물 하나를 담습니다. 시간만 보고 함수 구현 중간, schema와 consumer 사이, migration과 호환 코드 사이를 자르지 않습니다. 타입·인터페이스, 모듈과 직접 테스트, migration 단계처럼 검증 가능한 경계에서만 나눕니다.
+- **10분은 checkpoint 목표:** Luna는 약 5분, Sol은 약 10분 안에 첫 번째 유용한 상태를 디스크에 기록하는 것을 목표로 합니다. 이는 강제 종료 시간이 아닙니다. 아래 권장 30분 ceiling에서는 논리적 완결성을 지키기 위해 Sol 조각이 10분을 넘어 계속될 수 있으며, 기본 600초 ceiling에서는 540초 내부 cap보다 충분히 짧게 분할합니다.
 - **원인별 복구:** `timeout`은 모델 실패가 아니라 작업 크기 신호로 취급해 같은 lane에서 먼저 분할합니다. `unavailable`, `refused`, `partial`은 각각 다른 원인으로 처리합니다.
 - **resume 체인:** 관련 조각은 `codex exec resume <session-id>`로 순차 연결합니다. `thread.started` JSON 이벤트의 `thread_id`를 사용하고 lane 모델과 조각 effort를 다시 명시합니다. `resume --last`는 동시 세션이 없을 때만 최후 수단으로 사용합니다.
 - **관측 가능한 timeout:** 내부 cap을 `BASH_MAX_TIMEOUT_MS / 1000 - 60`으로 계산하고 `timeout -k 10`으로 TERM→KILL을 수행합니다. 외부 Bash tool이 먼저 종료하지 않도록 해당 tool call의 timeout도 같은 상한으로 설정합니다.
-- **진단 가능한 실행:** Codex의 JSON 이벤트와 마지막 메시지를 임시 파일에 보존하고, rc 124와 137을 timeout으로 식별합니다. 보고서에는 실제 명령에 전달한 lane 모델과 effort를 적고, effort를 생략했다면 추측하지 않고 `configured default`로 표시합니다.
+- **진단 가능한 실행:** Codex의 JSON 이벤트와 마지막 메시지를 임시 파일에 기록하고, rc 124와 137을 timeout으로 식별합니다. 검증된 `complete` 결과는 모든 조각의 임시 파일을 삭제합니다. 그 밖의 결과는 spec을 삭제하고 모든 조각의 final-message와 JSON log만 보존해 `ARTIFACTS`에 절대 경로를 보고합니다. 보고서에는 실제 명령에 전달한 lane 모델과 effort를 적고, effort를 생략했다면 추측하지 않고 `configured default`로 표시합니다.
 - **Windows/Git Bash 대응:** 최초 실행의 working directory는 `pwd -W`가 있으면 Windows-native 경로를 사용합니다. Resume에는 CLI가 받지 않는 `--sandbox`와 `--cd`를 전달하지 않되, 전역 기본값으로 바뀔 수 있는 모델과 effort는 다시 전달합니다.
 - **무음 거부 감지:** `exit 0`이어도 요청한 diff가 비어 있으면 성공이 아니라 `STATUS: refused`로 처리합니다.
 
@@ -47,6 +48,8 @@ Claude Code의 `~/.claude/settings.json`에서 Bash tool의 기본 및 최대 �
   }
 }
 ```
+
+이 설정에서 내부 cap은 1,740초(29분)입니다. 설정을 적용하지 않으면 기본 600초 ceiling에서 내부 cap이 540초(9분)이므로 Sol 조각도 9분보다 충분히 짧아야 합니다. 권장 설정에서는 응집된 조각이 15~20분 걸려도 10분마다 기계적으로 자르지 않고, 약 10분 안에 첫 durable checkpoint를 기록한 뒤 논리적 완료 지점까지 이어갑니다. 환경 변수만으로 Bash tool call의 실제 timeout이 바뀌지는 않으므로, 각 호출의 timeout parameter도 `BASH_MAX_TIMEOUT_MS`와 같은 값으로 설정해야 합니다.
 
 그다음 architect 세션을 시작합니다.
 
@@ -132,6 +135,18 @@ git merge upstream/main
 3. 두 Codex lane 모두 K fork의 sizing, derived timeout, JSON log, session ID, resume 규칙을 유지합니다.
 4. `timeout`은 먼저 분할하고, `unavailable`과 `refused`는 원인에 맞게 처리합니다.
 5. `PATCHES-K.md`의 기준 커밋과 검증한 CLI 버전을 갱신합니다.
+
+## 유지보수 검증
+
+플러그인 runtime에는 Python이 필요하지 않습니다. 저장소를 수정하거나 업스트림을 병합할 때만 `uv` 기반 validator와 테스트를 실행합니다.
+
+```bash
+uv run tools/validate_repo.py .
+uv run --with pytest python -m pytest -q tests/test_validate_repo.py
+claude plugin validate .
+```
+
+validator는 JSON과 front matter, 선언 버전, lane 모델과 effort 집합, 다섯 report 상태, timeout/resume 토큰, 활성 agent 이름, 임시파일 수명 계약을 검사합니다. README 설명문 자체는 고정하지 않으므로 문구를 자유롭게 개선할 수 있습니다. 인증과 비용이 필요한 live Codex smoke test는 일반 검증과 분리해 릴리스 전에 한 번 실행합니다.
 
 ## 배경과 저자
 

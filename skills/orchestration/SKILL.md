@@ -38,6 +38,8 @@ Handle abnormal outcomes by cause:
 - `refused`: read the quoted reason and fix the conflicting instruction or invalid request. Neither re-routing nor splitting cures a policy refusal.
 - `partial`: inspect what landed, verify it, and write a spec only for the coherent remainder.
 
+Any other nonzero exit is classified from the observed cause and verified disk state, never from the exit code alone: access or authentication failures are `unavailable`, while verified incomplete changes or failed verification are `partial`. An unknown nonzero with no verified requested change is `unavailable`; keep the actual exit code and useful log tail in `GAPS`, label the cause unclassified, and diagnose it before re-routing. An outer-tool kill without an inner timeout result is `timeout` when no verified change landed or `partial` when one did; report the outer-kill evidence without inventing exit 124 or 137.
+
 ## Choosing reasoning effort
 
 Pick the lowest rung adequate for the task. Effort changes cost and wall-clock behavior; it is not a dial to leave at maximum.
@@ -50,7 +52,7 @@ Pick the lowest rung adequate for the task. Effort changes cost and wall-clock b
 | `max` | yes | yes | Concurrency, security-sensitive paths, and difficult debugging |
 | `ultra` | no | yes | Sol-only internal delegation for wide refactors or problems that resisted two attempts |
 
-If the requested rung is unsupported, the lane refuses instead of rounding. A missing `REASONING` line falls back to the user's Codex default and is reported in `GAPS`; that is acceptable only for trivial work, never for an escalation.
+If the requested rung is unsupported, the lane returns `STATUS: refused`, records the invalid value and supported set in `GAPS`, and asks for a corrected spec instead of rounding or re-routing. Use `unavailable` for installation, authentication, access, or model-availability failures and for an unclassified nonzero execution failure with no verified requested change; the unclassified case requires diagnosis before re-routing. A missing `REASONING` line falls back to the user's Codex default and is reported in `GAPS`; that is acceptable only for trivial work, never for an escalation.
 
 The architect and advisor inherit Claude Code's session effort because their agent definitions pin none. Raise `/effort` before consequential architecture decisions or final reviews, then lower it for routine turns.
 
@@ -71,7 +73,9 @@ A spec that cannot state all six parts is an undecided architecture problem, not
 
 Both implementation lanes drive one foreground `codex exec` at a time under a hard wall clock. The lane's inner timeout is derived as `BASH_MAX_TIMEOUT_MS / 1000 - 60`, so it fires before the Bash tool's outer kill and leaves a JSON log, session ID, final-message file, and partial disk state for diagnosis. Raising the ceiling creates headroom; it does not make bundling free.
 
-- **One cohesive deliverable per piece.** Aim for about five minutes on Luna and ten minutes on Sol. One file, one migration phase, or one module plus its tests is a useful boundary.
+- **Choose coherence before the clock.** A piece ends at an independently verifiable boundary: an interface, one module plus its direct tests, one migration phase, or another state that can build and pass its named check. Never split mid-function, between a schema and its consumer, or only because a target minute elapsed.
+- **Treat five and ten minutes as checkpoint targets.** Luna should write useful state within about five minutes; Sol should do so within about ten minutes. These targets bound time to a durable checkpoint, not total piece duration.
+- **Respect the actual cap.** Sol's ten-minute checkpoint target assumes the recommended 1,800-second ceiling. Under that 1,740-second inner cap, a cohesive 15–20 minute piece may continue to its logical boundary. Under the stock 600-second ceiling, keep every Sol piece comfortably below the 540-second inner cap.
 - **Chain instead of bundle.** Related pieces run sequentially through `codex exec resume <session-id>`; independent pieces with no shared files may run in parallel.
 - **Write early, verify, then stop.** Every piece writes useful state before extended exploration, runs its named verification, and stops without expanding scope.
 - **Split a timeout.** Retry smaller halves in the same session. Do not resend the same oversized spec or switch models merely to buy more wall-clock time.

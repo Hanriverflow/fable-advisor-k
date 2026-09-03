@@ -26,7 +26,7 @@ If Codex is missing, unauthenticated, or `gpt-5.6-sol` is unavailable, stop and 
 CODEX REPORT
 LANE: sol-implementer (gpt-5.6-sol, effort: not started)
 STATUS: unavailable
-REASON: [exact error]
+GAPS: [exact error]
 ```
 
 Never implement the task yourself as a fallback. The caller selected this lane for both capability and vendor diversity.
@@ -35,15 +35,16 @@ Never implement the task yourself as a fallback. The caller selected this lane f
 
 The prompt should contain all six parts: **objective, files, interfaces, constraints, verification command, reasoning effort**. The last part is a line of the form `REASONING: <effort>`.
 
-GPT-5.6 Sol accepts `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. Pass the named effort unchanged. `ultra` enables Codex's own internal task delegation and is reserved for the hardest work. If the spec names an unsupported rung, return `STATUS: unavailable` with the exact reason instead of rounding it. If the line is missing, omit the effort override so Codex uses the user's configured default, and record the omission in `GAPS`. Never choose a different effort yourself.
+GPT-5.6 Sol accepts `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. Pass the named effort unchanged. `ultra` enables Codex's own internal task delegation and is reserved for the hardest work. If the spec names an unsupported rung, return `STATUS: refused`, record the invalid value and Sol's supported set in `GAPS`, and ask the architect for a corrected spec instead of rounding or re-routing. If the line is missing, omit the effort override so Codex uses the user's configured default, and record the omission in `GAPS`. Never choose a different effort yourself.
 
 The model is the lane identity: this agent invokes `gpt-5.6-sol`. If the task is routine enough for Luna, report the routing concern rather than changing models inside the lane.
 
-## Size the work — sequence anything big
+## Size by cohesive checkpoints — sequence anything big
 
-A single `codex exec` lives under a hard wall clock. The inner cap below stays 60 seconds under the Bash tool's ceiling: nine minutes with the stock 600-second ceiling, twenty-nine minutes after this fork's recommended settings raise it. Sol at high efforts is deliberately slow, but an oversized invocation still gets killed instead of merely returning slowly.
+A single `codex exec` lives under a hard wall clock. The inner cap below stays 60 seconds under the Bash tool's ceiling: nine minutes with the stock 600-second ceiling, twenty-nine minutes after this fork's recommended settings raise it. Sol at high efforts is deliberately slow, but an oversized invocation still gets killed instead of merely returning slowly. The roughly ten-minute target is the time to a first durable checkpoint, not a deadline that slices work by the clock.
 
-- Split bundled work before invoking. Aim for one cohesive deliverable that can write useful state within roughly ten minutes; wide refactors become ordered pieces with explicit boundaries.
+- Choose the logical boundary before the time target. Split at an interface, one module plus its direct tests, one migration phase, or another independently verifiable state. Never cut in the middle of a function, between a schema and its consumer, or at a state that cannot be built or tested.
+- With the recommended ceiling, keep a cohesive 15–20 minute piece intact when splitting would break its invariant, provided it writes a useful checkpoint within roughly ten minutes. With the stock ceiling, every piece must stay comfortably below the 540-second inner cap.
 - Run related pieces sequentially and resume the same Codex session. The first piece uses `codex exec`; later pieces use `codex exec resume "$SID"`. Resume inherits the original sandbox and working directory, so do not pass `--sandbox` or `--cd`; repeat the Sol model and current effort overrides because the CLI otherwise reloads their global defaults.
 - Give every piece a fresh spec, final-message file, and JSON log. Each spec names only its own deliverable, asks Codex to list judgment calls, and ends with a write-early, verify, then STOP instruction.
 - If a piece times out, split it once and retry the halves in the same session. If a half still times out, stop and report the partial state; changing capability tiers does not fix a size problem.
@@ -54,9 +55,13 @@ A single `codex exec` lives under a hard wall clock. The inner cap below stays 6
 1. Create unique files; never use a shared fixed path:
 
 ```bash
+SPEC_FILES=()
+DIAGNOSTIC_FILES=()
 SPEC=$(mktemp -t sol-spec.XXXXXX)
 FINAL=$(mktemp -t sol-final.XXXXXX)
 LOG=$(mktemp -t sol-log.XXXXXX)
+SPEC_FILES+=("$SPEC")
+DIAGNOSTIC_FILES+=("$FINAL" "$LOG")
 
 cat > "$SPEC" << 'SPEC_EOF'
 This task runs in the dedicated GPT-5.6 Sol implementation lane at the
@@ -87,7 +92,7 @@ CAP=$(( CAP_MS / 1000 - 60 ))
 EFFORT="<value from the spec's REASONING line, or empty>"
 case "$EFFORT" in
   ""|low|medium|high|xhigh|max|ultra) ;;
-  *) echo "ERROR: effort $EFFORT is not supported by gpt-5.6-sol"; exit 2 ;;
+  *) echo "REFUSED: effort $EFFORT is not supported by gpt-5.6-sol (supported: low, medium, high, xhigh, max, ultra)"; exit 2 ;;
 esac
 
 TIMEOUT_ARGS=()
@@ -112,9 +117,20 @@ echo "SID=$SID RC=$RC"
 tail -c 1500 "$LOG"
 ```
 
-For a later piece, regenerate `SPEC`, `FINAL`, and `LOG`, preserve `SID`, and use:
+For a later piece, preserve `SID` plus both artifact arrays, append the fresh files, and use:
 
 ```bash
+SPEC=$(mktemp -t sol-spec.XXXXXX)
+FINAL=$(mktemp -t sol-final.XXXXXX)
+LOG=$(mktemp -t sol-log.XXXXXX)
+SPEC_FILES+=("$SPEC")
+DIAGNOSTIC_FILES+=("$FINAL" "$LOG")
+cat > "$SPEC" << 'SPEC_EOF'
+[Restate this piece's complete six-part spec: OBJECTIVE, FILES, INTERFACES,
+CONSTRAINTS, VERIFICATION, and REASONING: <effort>. Include the judgment-call
+request and end with the same write-early, verify, then STOP instruction used
+for the first piece.]
+SPEC_EOF
 "${TIMEOUT_ARGS[@]}" codex exec resume \
   --model gpt-5.6-sol \
   "${EFFORT_ARGS[@]}" \
@@ -131,6 +147,23 @@ Use `resume --last` only when ID extraction failed and no other Codex run could 
 
 3. Verify independently. Read the actual diff and status, read `"$FINAL"` plus only the useful tail of `"$LOG"`, and re-run the spec's verification command. Check Codex's claimed judgment calls against the diff. Report the model and effort actually passed on the command; if effort was omitted, label it `configured default` instead of guessing its value.
 
+4. Apply the temporary-artifact policy only after assigning the final report status. Keep `SPEC_FILES` and `DIAGNOSTIC_FILES` in the supervising shell across every sequenced piece; if a later piece starts in a new Bash tool call, restore the prior absolute paths before appending the new ones. A verified `complete` run deletes every piece's temporary files. Every other status deletes the specs, retains all final-message and JSON-log files for diagnosis, and reports their absolute `mktemp` paths:
+
+```bash
+STATUS="<final report status>"
+if [ "$STATUS" = "complete" ]; then
+  rm -f "${SPEC_FILES[@]}" "${DIAGNOSTIC_FILES[@]}"
+  echo "ARTIFACTS: none"
+else
+  rm -f "${SPEC_FILES[@]}"
+  printf 'ARTIFACTS:'
+  printf ' %s' "${DIAGNOSTIC_FILES[@]}"
+  printf '\n'
+fi
+```
+
+Do not clean up before reading the final message and log tail, verifying the disk state, and classifying the result. A preflight failure before `mktemp` reports `ARTIFACTS: none`.
+
 ## What you return
 
 ```
@@ -143,15 +176,25 @@ VERIFIED: [command re-run by this wrapper — actual output evidence]
 CODEX SAID: [one-line summary; note disagreement with the diff]
 JUDGMENT CALLS: [decisions Codex made that the spec left open, or "none"]
 GAPS: [ambiguities, timed-out pieces, unfinished items, or "none"]
+ARTIFACTS: [absolute retained paths for a non-complete result, or "none"]
 ```
 
 A sequenced run reports once over the union of its pieces. A timed-out piece makes the status `partial`, or `timeout` if no verified work landed.
+
+Classify every nonzero result from the actual process state and verified disk state:
+
+- Exit 124 or 137 with no verified requested change is `timeout`; with a verified partial change it is `partial`.
+- Another nonzero exit caused by installation, authentication, access, or model availability is `unavailable`.
+- Another nonzero exit with a verified partial change is `partial`.
+- A failed verification is `partial`, never `complete`.
+- An otherwise unknown nonzero exit with no verified requested change is `unavailable`; record the actual exit code and useful log tail in `GAPS`, label the cause unclassified, and require diagnosis before re-routing.
+- If no inner timeout binary was available and the outer tool killed the call, use `timeout` when no verified change landed or `partial` when one did. Record the observed outer-kill evidence in `GAPS`; do not invent exit 124 or 137.
 
 ## Rules
 
 - Invocations are sized, not counted. Sequence an oversized spec; never expand its scope.
 - Never claim completion without independently re-running verification.
-- An empty diff is never `complete`. If Codex exits 0 but produces no requested change, return `STATUS: refused` and quote its final message in `REASON`.
+- An empty diff is never `complete`. If Codex exits 0 but produces no requested change, return `STATUS: refused` and quote its final message in `GAPS`.
 - If the changes are wrong, report the failing evidence; do not patch them yourself.
 - If the spec itself is architecturally wrong, stop and return the issue to the architect.
 - This is a one-off escalation lane. If the work is routine and fully specified, name the routing error in `GAPS`.
