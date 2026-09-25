@@ -84,8 +84,8 @@ DOCUMENTS: Final = (
 LUNA_EFFORTS: Final = frozenset({"", "low", "medium", "high", "xhigh", "max"})
 SOL_EFFORTS: Final = LUNA_EFFORTS | {"ultra"}
 LANES: Final = (
-    LaneContract("agents/codex-implementer.md", "gpt-5.6-luna", LUNA_EFFORTS),
-    LaneContract("agents/sol-implementer.md", "gpt-5.6-sol", SOL_EFFORTS),
+    LaneContract("agents/codex-implementer.md", "gpt-6-luna", LUNA_EFFORTS),
+    LaneContract("agents/sol-implementer.md", "gpt-6-sol", SOL_EFFORTS),
 )
 TIMEOUT_TOKENS: Final = (
     "BASH_MAX_TIMEOUT_MS",

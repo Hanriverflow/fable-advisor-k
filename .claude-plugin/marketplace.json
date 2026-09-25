@@ -1,7 +1,7 @@
 {
   "name": "fable-advisor-k",
   "metadata": {
-    "description": "Hanriverflow's hardened fork of fable-advisor: Fable 5.1 orchestration, GPT-5.6 Luna and Sol implementation lanes, per-task reasoning effort, and size-aware timeout/resume handling."
+    "description": "Hanriverflow's hardened fork of fable-advisor: Fable 5.1 orchestration, GPT-6 Luna and Sol implementation lanes, per-task reasoning effort, and size-aware timeout/resume handling."
   },
   "owner": {
     "name": "Hanriverflow",
@@ -11,7 +11,7 @@
     {
       "name": "fable-advisor",
       "source": "./",
-      "description": "Fable 5.1 architect-as-orchestrator with GPT-5.6 Luna for routine work, GPT-5.6 Sol for hard one-offs, per-task reasoning effort, hardened Codex timeouts and resume chains, and a mandatory Fable 5.1 review before shipping."
+      "description": "Fable 5.1 architect-as-orchestrator with GPT-6 Luna for routine work, GPT-6 Sol for hard one-offs, per-task reasoning effort, hardened Codex timeouts and resume chains, and a mandatory Fable 5.1 review before shipping."
     }
   ]
 }

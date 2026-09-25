@@ -1,6 +1,6 @@
 ---
 name: orchestration
-description: Routing doctrine for a Fable 5.1 architect that delegates routine implementation to GPT-5.6 Luna, escalates judgment-heavy one-offs to GPT-5.6 Sol, selects reasoning effort per task, sizes Codex work under observable timeout limits, resumes related pieces safely, and obtains a Fable review before reporting done. USE WHEN delegating implementation, choosing a lane or effort, writing a subagent spec, recovering from timeout or refusal, deciding whether to consult fable-advisor, using optional Codex plugin review skills, managing model cost, or running a multi-task build where the session is the architect.
+description: Routing doctrine for a Fable 5.1 architect that delegates routine implementation to GPT-6 Luna, escalates judgment-heavy one-offs to GPT-6 Sol, selects reasoning effort per task, sizes Codex work under observable timeout limits, resumes related pieces safely, and obtains a Fable review before reporting done. USE WHEN delegating implementation, choosing a lane or effort, writing a subagent spec, recovering from timeout or refusal, deciding whether to consult fable-advisor, using optional Codex plugin review skills, managing model cost, or running a multi-task build where the session is the architect.
 ---
 
 # Orchestration — the architect's routing doctrine
@@ -9,7 +9,7 @@ The session is the architect. It owns requirements, architecture, decomposition,
 
 ## Cost discipline — the prime directive
 
-Fable 5.1 orchestrates and reviews. GPT-5.6 Luna performs routine typing. GPT-5.6 Sol takes the hard one-offs. Both implementation lanes are cross-vendor producers; Fable remains responsible for judgment and acceptance.
+Fable 5.1 orchestrates and reviews. GPT-6 Luna performs routine typing. GPT-6 Sol takes the hard one-offs. Both implementation lanes are cross-vendor producers; Fable remains responsible for judgment and acceptance.
 
 **Emit judgment, not volume.** The architect produces decomposition, interfaces, specs, routing decisions, and verdicts. Long implementation blocks, test bodies, boilerplate, and mechanical config belong in a lane. If a lane produces a bad diff, send a corrected spec instead of silently repairing it.
 
@@ -23,11 +23,13 @@ The architect always retains decomposition, interface design, debugging hypothes
 
 | Lane | Producer | Invoke | Route here when |
 |---|---|---|---|
-| Routine | GPT-5.6 Luna | `codex-implementer` | The spec determines the outcome: mechanical edits, wiring, CRUD, standard tests, and ordinary features. Default lane. |
-| High-complexity | GPT-5.6 Sol | `sol-implementer` | Correctness depends on judgment the spec cannot fully encode: concurrency, security-sensitive paths, non-trivial algorithms, hard debugging, wide refactors, or two failed corrected attempts in the routine lane. |
+| Routine | GPT-6 Luna | `codex-implementer` | The spec determines the outcome: mechanical edits, wiring, CRUD, standard tests, and ordinary features. Default lane. |
+| High-complexity | GPT-6 Sol | `sol-implementer` | Correctness depends on judgment the spec cannot fully encode: concurrency, security-sensitive paths, non-trivial algorithms, hard debugging, wide refactors, or two failed corrected attempts in the routine lane. |
 | Review | Fable 5.1 | `fable-advisor` | Read-only advice at commitment boundaries and the mandatory end-of-deliverable review. |
 
 The deciding question is how much the result depends on judgment the spec cannot capture. Little means Luna. A lot, with costly mistakes, means Sol. Give one corrected routine spec after the first miss; escalate only after the second miss shows the task was misclassified.
+
+Model generation policy: the lanes run the GPT-6 family (`gpt-6-luna`, `gpt-6-sol`). Do not route back to GPT-5.6 models. `gpt-6-astra` (efforts up to `ultra`) is available for the hardest one-offs or a cross-vendor adversarial review through the optional Codex plugin (`--model gpt-6-astra`).
 
 The lane determines the model. The architect determines reasoning effort per task. The user's global Codex config remains the fallback for omitted values, not the source of lane identity.
 

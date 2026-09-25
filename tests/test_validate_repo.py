@@ -94,14 +94,14 @@ def _valid_repo(tmp_path: Path) -> Path:
         "---\nname: codex-implementer\ndescription: routine\nmodel: sonnet\n"
         +
         "tools: Bash, Read\n---\n"
-        + _lane_body("gpt-5.6-luna", '""|low|medium|high|xhigh|max'),
+        + _lane_body("gpt-6-luna", '""|low|medium|high|xhigh|max'),
     )
     _write(
         root / "agents/sol-implementer.md",
         "---\nname: sol-implementer\ndescription: hard\nmodel: sonnet\n"
         +
         "tools: Bash, Read\n---\n"
-        + _lane_body("gpt-5.6-sol", '""|low|medium|high|xhigh|max|ultra'),
+        + _lane_body("gpt-6-sol", '""|low|medium|high|xhigh|max|ultra'),
     )
     _write(
         root / "skills/orchestration/SKILL.md",
@@ -188,7 +188,7 @@ def test_reports_version_when_release_is_missing(tmp_path: Path) -> None:
 Mutation = tuple[str, str, str, str, str]
 MUTATIONS: Final[tuple[Mutation, ...]] = (
     ("agents/codex-implementer.md", "model: sonnet", "", "FRONT_MATTER", "model"),
-    ("agents/codex-implementer.md", "gpt-5.6-luna", "other", "MODEL", "gpt-5.6-luna"),
+    ("agents/codex-implementer.md", "gpt-6-luna", "other", "MODEL", "gpt-6-luna"),
     ("agents/codex-implementer.md", "xhigh|max)", "xhigh|max|ultra)", "EFFORT", "ultra"),
     ("agents/sol-implementer.md", "|ultra)", ")", "EFFORT", "ultra"),
     ("agents/codex-implementer.md", " | refused", "", "STATUS", "refused"),
@@ -255,14 +255,14 @@ def test_reports_model_when_first_run_model_drifts(tmp_path: Path) -> None:
     _replace_once(
         lane,
         (
-            "codex exec --model gpt-5.6-luna --sandbox",
+            "codex exec --model gpt-6-luna --sandbox",
             "codex exec --model wrong --sandbox",
         ),
     )
     # When
     findings = validate(root)
     # Then
-    assert Finding("MODEL", "agents/codex-implementer.md", "gpt-5.6-luna") in findings
+    assert Finding("MODEL", "agents/codex-implementer.md", "gpt-6-luna") in findings
 
 
 def test_reports_cleanup_when_success_predicate_drifts(tmp_path: Path) -> None:

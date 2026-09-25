@@ -4,16 +4,16 @@
 
 **Fable 5.1이 설계하고, Luna와 Sol이 작업별 effort로 구현하며, Fable 5.1이 출고 전 검토합니다. K fork는 이 흐름에 작업 분할, 관측 가능한 timeout, 안전한 resume 체인을 추가합니다.**
 
-<a href="https://github.com/Hanriverflow/fable-advisor-k/raw/main/assets/fable-advisor-demo.mp4"><img src="assets/fable-advisor-demo-poster.png" alt="30-second demo: Fable 5.1 orchestrates, GPT-5.6 Luna implements, Fable 5.1 reviews" width="100%"></a>
+<a href="https://github.com/Hanriverflow/fable-advisor-k/raw/main/assets/fable-advisor-demo.mp4"><img src="assets/fable-advisor-demo-poster.png" alt="30-second demo: Fable 5.1 orchestrates, GPT-6 Luna implements, Fable 5.1 reviews" width="100%"></a>
 
-<p align="center"><em>▶ 30초 데모 — Fable 5.1 설계 → GPT-5.6 Luna 구현 → Fable 5.1 검토</em></p>
+<p align="center"><em>▶ 30초 데모 — Fable 5.1 설계 → GPT-6 Luna 구현 → Fable 5.1 검토</em></p>
 
 ## 구조
 
 | Lane | Producer | 호출 | 사용 시점 |
 |---|---|---|---|
-| Routine | **GPT-5.6 Luna** | `codex-implementer` | 스펙이 결과를 충분히 결정하는 일반 구현, wiring, CRUD, 기계적 수정, 표준 테스트 |
-| High-complexity | **GPT-5.6 Sol** | `sol-implementer` | 동시성, 보안, 비정형 알고리즘, 어려운 디버깅, 넓은 refactor, 또는 Luna의 교정된 시도 두 번이 실패한 작업 |
+| Routine | **GPT-6 Luna** | `codex-implementer` | 스펙이 결과를 충분히 결정하는 일반 구현, wiring, CRUD, 기계적 수정, 표준 테스트 |
+| High-complexity | **GPT-6 Sol** | `sol-implementer` | 동시성, 보안, 비정형 알고리즘, 어려운 디버깅, 넓은 refactor, 또는 Luna의 교정된 시도 두 번이 실패한 작업 |
 | Review | **Fable 5.1** | `fable-advisor` | 주요 설계 결정을 내리기 전과 모든 deliverable의 최종 검토 |
 
 모델은 lane이 결정하고, architect는 스펙의 여섯 번째 항목인 `REASONING: <effort>`로 작업별 effort를 결정합니다. Luna는 `low`부터 `max`, Sol은 `low`부터 `ultra`까지 지원합니다. 지원하지 않는 effort는 접근 실패가 아니라 잘못된 spec이므로 `STATUS: refused`로 반환하며 다른 lane으로 자동 전환하지 않습니다. 전역 `~/.codex/config.toml`은 누락된 값의 fallback일 뿐 lane 정체성의 source of truth가 아닙니다.
