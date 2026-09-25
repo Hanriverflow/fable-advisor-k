@@ -23,9 +23,10 @@
 - **논리적 경계 우선:** 한 번의 위임에는 독립적으로 검증 가능한 응집된 산출물 하나를 담습니다. 시간만 보고 함수 구현 중간, schema와 consumer 사이, migration과 호환 코드 사이를 자르지 않습니다. 타입·인터페이스, 모듈과 직접 테스트, migration 단계처럼 검증 가능한 경계에서만 나눕니다.
 - **10분은 checkpoint 목표:** Luna는 약 5분, Sol은 약 10분 안에 첫 번째 유용한 상태를 디스크에 기록하는 것을 목표로 합니다. 이는 강제 종료 시간이 아닙니다. 아래 권장 30분 ceiling에서는 논리적 완결성을 지키기 위해 Sol 조각이 10분을 넘어 계속될 수 있으며, 기본 600초 ceiling에서는 540초 내부 cap보다 충분히 짧게 분할합니다.
 - **원인별 복구:** `timeout`은 모델 실패가 아니라 작업 크기 신호로 취급해 같은 lane에서 먼저 분할합니다. `unavailable`, `refused`, `partial`은 각각 다른 원인으로 처리합니다.
-- **resume 체인:** 관련 조각은 `codex exec resume <session-id>`로 순차 연결합니다. `thread.started` JSON 이벤트의 `thread_id`를 사용하고 lane 모델과 조각 effort를 다시 명시합니다. `resume --last`는 동시 세션이 없을 때만 최후 수단으로 사용합니다.
+- **권한 차단:** Claude Code의 permission system 또는 auto-mode가 Codex 실행이나 spec 작성 등 선행 작업을 막으면 `blocked`로 즉시 중단합니다. 관측한 메시지와 차단 단계를 보고하고 사용자의 명시적 결정을 기다립니다. 프롬프트·플래그·실행 경로나 다른 lane으로 우회하지 않으며, Codex 자체 인증·접근 오류인 `unavailable`과 구분합니다.
+- **resume 체인:** 관련 조각은 `codex exec resume <session-id>`로 순차 연결합니다. `thread.started` JSON 이벤트의 `thread_id`를 사용하고 lane 모델을 다시 명시합니다. 최초 실행과 매 resume 직전에 현재 조각의 effort를 검증하고 `EFFORT_ARGS`를 비운 뒤 새로 구성합니다. 생략이 허용되는 단순 작업에서는 이전 override를 제거하고 전역 설정으로 fallback하며, 고난도 작업에는 명시적 effort가 필요합니다. 새 Bash 호출에서는 SID와 이전 artifact 경로를 복원합니다. `resume --last`는 동시 세션이 없을 때만 최후 수단으로 사용합니다.
 - **관측 가능한 timeout:** 내부 cap을 `BASH_MAX_TIMEOUT_MS / 1000 - 60`으로 계산하고 `timeout -k 10`으로 TERM→KILL을 수행합니다. 외부 Bash tool이 먼저 종료하지 않도록 해당 tool call의 timeout도 같은 상한으로 설정합니다.
-- **진단 가능한 실행:** Codex의 JSON 이벤트와 마지막 메시지를 임시 파일에 기록하고, rc 124와 137을 timeout으로 식별합니다. 검증된 `complete` 결과는 모든 조각의 임시 파일을 삭제합니다. 그 밖의 결과는 spec을 삭제하고 모든 조각의 final-message와 JSON log만 보존해 `ARTIFACTS`에 절대 경로를 보고합니다. 보고서에는 실제 명령에 전달한 lane 모델과 effort를 적고, effort를 생략했다면 추측하지 않고 `configured default`로 표시합니다.
+- **진단 가능한 실행:** Codex의 JSON 이벤트와 마지막 메시지를 임시 파일에 기록하고, rc 124와 137을 timeout으로 식별합니다. 검증된 `complete` 결과는 모든 조각의 임시 파일을 삭제합니다. 그 밖의 실행 결과는 spec을 삭제하고 모든 조각의 final-message와 JSON log만 보존해 `ARTIFACTS`에 절대 경로를 보고합니다. 단, `blocked`이면 추가 검증·정리 호출 없이 앞선 변경과 spec을 포함한 기존 artifact를 보존·보고합니다. artifact가 생성되지 않았다면 `ARTIFACTS: none`이며, 실행되지 않은 Codex의 종료코드나 로그를 추정하지 않습니다. 보고서에는 실제 명령에 전달한 lane 모델과 effort를 적고, effort를 생략했다면 추측하지 않고 `configured default`로 표시합니다.
 - **Windows/Git Bash 대응:** 최초 실행의 working directory는 `pwd -W`가 있으면 Windows-native 경로를 사용합니다. Resume에는 CLI가 받지 않는 `--sandbox`와 `--cd`를 전달하지 않되, 전역 기본값으로 바뀔 수 있는 모델과 effort는 다시 전달합니다.
 - **무음 거부 감지:** `exit 0`이어도 요청한 diff가 비어 있으면 성공이 아니라 `STATUS: refused`로 처리합니다.
 
@@ -142,11 +143,11 @@ git merge upstream/main
 
 ```bash
 uv run tools/validate_repo.py .
-uv run --with pytest python -m pytest -q tests/test_validate_repo.py
+uv run --with pytest python -m pytest -q tests
 claude plugin validate .
 ```
 
-validator는 JSON과 front matter, 선언 버전, lane 모델과 effort 집합, 다섯 report 상태, timeout/resume 토큰, 활성 agent 이름, 임시파일 수명 계약을 검사합니다. README 설명문 자체는 고정하지 않으므로 문구를 자유롭게 개선할 수 있습니다. 인증과 비용이 필요한 live Codex smoke test는 일반 검증과 분리해 릴리스 전에 한 번 실행합니다.
+validator는 JSON과 front matter, 선언 버전, lane 모델과 effort 집합, `blocked`를 포함한 여섯 report 상태, timeout/resume 토큰, 활성 agent 이름, 임시파일 수명 계약을 검사합니다. `tests/test_lane_commands.py`는 Markdown의 실제 Bash 예시를 추출하고 임시 PATH의 mock Codex로 effort 전환·생략·거부, 새 셸 resume, 기존 artifact 정책과 `bash -n` 문법을 검사합니다. Bash가 없으면 해당 검사는 skip으로 보고하며 통과로 세지 않습니다. 이 검증은 실제 Claude Code 권한 시스템이나 모델 호출의 end-to-end 검증이 아닙니다. README 설명문 자체는 고정하지 않으므로 문구를 자유롭게 개선할 수 있습니다. 인증과 비용이 필요한 live Codex smoke test는 일반 검증과 분리해 릴리스 전에 한 번 실행합니다.
 
 ## 배경과 저자
 

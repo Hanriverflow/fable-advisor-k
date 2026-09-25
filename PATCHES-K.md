@@ -35,6 +35,7 @@ Measurements on the reference Windows/Git Bash machine in 2026-07 showed the cos
 - Sequential resume chains for related pieces and parallel execution only for independent files in isolated write contexts.
 - Write-early, verify, then STOP tails so useful disk state survives a kill.
 - Cause-specific routing:
+  - `blocked` → stop on a Claude Code permission-system or auto-mode denial, report the observed message and blocked step, and obtain the user's explicit decision; never rewrite the prompt or invocation, or switch lanes to work around the block;
   - `timeout` → split and retry in the same lane;
   - `unavailable` → surface the access/install/auth error and transparently choose another adequate route;
   - `refused` → fix the conflicting policy or invalid request;
@@ -64,12 +65,13 @@ Both `agents/codex-implementer.md` and `agents/sol-implementer.md` use the same 
 - `--json` is redirected to a unique temporary log instead of filling the wrapper's context.
 - The session ID is parsed specifically from the `thread.started` event's `thread_id`, rather than taking the first UUID-like string in mixed stdout/stderr.
 - Later pieces use `codex exec resume <session-id>`. Resume does not receive `--sandbox` or `--cd`; it inherits both from the original session. The lane model and piece effort are passed again because resume reloads global defaults for them.
+- Before every first run and resume, validate the current piece's effort, clear `EFFORT_ARGS`, and build only its current override. Permitted omission removes the old override and keeps the global-config fallback; escalation still requires explicit effort. New Bash tool calls restore `SID` and all prior absolute artifact paths; each invocation rebuilds its timeout and effort arguments.
 - `resume --last` is a last-resort fallback only when no concurrent Codex run could be selected accidentally.
 - `pwd -W` supplies a Windows-native working path under Git Bash, with plain `pwd` elsewhere.
 - Reports state the lane model and effort actually passed on the command. An omitted effort is labeled `configured default` rather than guessed.
 - Unsupported effort is `refused`, with the invalid value and supported set in `GAPS`. `unavailable` covers installation, authentication, access, model-availability, and unclassified nonzero/no-change failures; the unclassified case must be diagnosed before re-routing.
 - Non-timeout failures are classified from the observed cause and verified disk state. An unknown nonzero exit with no verified requested change is `unavailable` and requires diagnosis before re-routing; its code and useful log tail remain in `GAPS`.
-- A verified `complete` result deletes every sequenced piece's temporary files. Other statuses delete all specs, retain every piece's final-message file and JSON log, and report those absolute paths in `ARTIFACTS`.
+- A verified `complete` result deletes every sequenced piece's temporary files. Other non-blocked statuses delete all specs, retain every piece's final-message file and JSON log, and report those absolute paths in `ARTIFACTS`. A host block stops further tool calls, including cleanup: retain and report earlier changes and every existing artifact, including specs, or `ARTIFACTS: none` when none were created. Never invent execution or verification evidence for an action that did not run.
 
 The resume chain was live-tested with Codex CLI 0.146.1 on 2026-08-08. On 2026-09-03, Codex CLI 0.152.1 help was rechecked: `exec` still supports `--model`, `--config`, `--sandbox`, `--cd`, `--json`, and `--output-last-message`; `exec resume` still accepts a session ID, `--config`, `--model`, `--json`, and `--output-last-message`, while exposing neither `--sandbox` nor `--cd`. A live Luna resume without `--model` reloaded the machine's global Sol default and emitted a model-switch warning, which is why both lane recipes repeat `--model` explicitly. A fresh Luna chain with the explicit model resumed without that warning and recalled its prior-turn token correctly.
 
@@ -91,10 +93,12 @@ This deliberately retires the v4 single-config SOT. It preserves predictable lan
 
 The upstream 2026-08-04 refusal detection remains in both lanes:
 
-- A scoped preamble opts the dedicated lane out of conflicting default orchestration rules while preserving all unrelated instructions.
+- A task-scope preamble describes the already delegated implementation task and uses only permitted opt-outs from a separate orchestration workflow. Applicable user/project instructions and security controls still apply; unresolved conflicts stop the run. Never alter the preamble after a host denial to get a command through.
 - A clean process exit is not evidence of work.
 - An empty requested diff is `STATUS: refused`, never `complete`.
 - The wrapper reads the actual diff, re-runs verification, and compares Codex's final message with disk state.
+
+The unreleased 2026-09-25 maintenance update manually adapts the task-scope and host-block guidance from the [upstream Sol agent](https://github.com/DannyMac180/fable-advisor/blob/main/agents/sol-implementer.md) and fixes per-piece effort preparation in both K lanes. It does not merge upstream or change lane models, effort defaults, sandbox permissions, or release metadata. Document-contract tests cover the six statuses and blocked policy; `tests/test_lane_commands.py` executes the actual Markdown examples with a local argv-recording mock. These checks do not exercise Claude Code's real permission system or authenticated model calls.
 
 ## Maintenance
 
@@ -111,7 +115,7 @@ When resolving future upstream changes:
 2. Preserve the upstream Fable/Luna/Sol architecture and effort table unless model capabilities change.
 3. Preserve K sizing, derived timeout, JSON logging, session-ID parsing, resume, and cause-specific recovery in both Codex lanes.
 4. Update this file's upstream commit and CLI verification note.
-5. Run `uv run tools/validate_repo.py .`, `uv run --with pytest python -m pytest -q tests/test_validate_repo.py`, and `claude plugin validate .`.
+5. Run `uv run tools/validate_repo.py .`, `uv run --with pytest python -m pytest -q tests`, and `claude plugin validate .`.
 6. Run a live low-effort smoke test before release; keep authenticated model calls outside the deterministic local validator.
 
 Versioning: an upstream `X.Y.0` becomes the first K release `X.Y.1`; subsequent K-only fixes increment the patch number.

@@ -13,7 +13,7 @@ REPO_ROOT: Final = Path(__file__).resolve().parents[1]
 TOOLS_DIR: Final = REPO_ROOT / "tools"
 VALIDATOR: Final = TOOLS_DIR / "validate_repo.py"
 
-from tools.validate_repo import Finding, validate
+from tools.validate_repo import Finding, LANES, STATUS_RE, STATUS_VALUES, validate
 
 
 def _write(path: Path, content: str) -> None:
@@ -27,7 +27,7 @@ case "$EFFORT" in
   {efforts}) ;;
   *) echo "REFUSED: unsupported effort"; exit 2 ;;
 esac
-STATUS: complete | partial | timeout | unavailable | refused
+STATUS: complete | partial | timeout | unavailable | refused | blocked
 BASH_MAX_TIMEOUT_MS
 CAP=$(( CAP_MS / 1000 - 60 ))
 timeout -k 10 "$CAP"
@@ -192,6 +192,10 @@ MUTATIONS: Final[tuple[Mutation, ...]] = (
     ("agents/codex-implementer.md", "xhigh|max)", "xhigh|max|ultra)", "EFFORT", "ultra"),
     ("agents/sol-implementer.md", "|ultra)", ")", "EFFORT", "ultra"),
     ("agents/codex-implementer.md", " | refused", "", "STATUS", "refused"),
+    ("agents/codex-implementer.md", " | blocked", "", "STATUS", "blocked"),
+    ("agents/sol-implementer.md", " | blocked", "", "STATUS", "blocked"),
+    ("agents/codex-implementer.md", " | blocked", " | blocked | mystery", "STATUS", "mystery"),
+    ("agents/sol-implementer.md", " | blocked", " | blocked | mystery", "STATUS", "mystery"),
     ("agents/codex-implementer.md", '-eq 124', "-eq 123", "TIMEOUT", "-eq 124"),
     ("agents/codex-implementer.md", "resume --model", "resume --sandbox --model", "RESUME", "--sandbox"),
     ("agents/codex-implementer.md", "thread.started", "thread.start", "RESUME", "thread.started"),
@@ -296,6 +300,46 @@ def test_reports_resume_when_later_piece_spec_is_empty(tmp_path: Path) -> None:
     findings = validate(root)
     # Then
     assert Finding("RESUME", "agents/codex-implementer.md", "spec") in findings
+
+
+@pytest.mark.parametrize("lane", LANES)
+def test_real_lane_accepts_all_six_statuses(lane) -> None:
+    expected = {"complete", "partial", "timeout", "unavailable", "refused", "blocked"}
+    text = (REPO_ROOT / lane.path).read_text(encoding="utf-8")
+    match = STATUS_RE.search(text)
+    assert match is not None
+    assert {part.strip() for part in match.group(1).split("|")} == expected
+    assert STATUS_VALUES == expected
+    assert validate(REPO_ROOT) == []
+
+
+def test_host_block_document_contract_is_consistent() -> None:
+    # This checks written policy, not Claude Code's live permission system.
+    policies = []
+    for lane in LANES:
+        text = (REPO_ROOT / lane.path).read_text(encoding="utf-8")
+        policies.append(text.split("## Host permission blocks\n", 1)[1].split("## The contract", 1)[0])
+        assert "For `blocked`, follow the preservation/reporting rule above; do not enter this cleanup recipe." in text
+        assert "escalation requires explicit `REASONING` before invocation" in text
+        assert "configured default" in text and "record the omission in `GAPS`" in text
+        assert "Follow all applicable user and project instructions and security" in text
+        assert "If an instruction conflict remains unresolved, stop and report it." in text
+    assert policies[0] == policies[1]
+    orchestration = (REPO_ROOT / "skills/orchestration/SKILL.md").read_text(encoding="utf-8")
+    recovery = orchestration.split("Handle abnormal outcomes by cause:", 1)[1].split("## Choosing reasoning effort", 1)[0]
+    for policy in [*policies, recovery]:
+        for token in (
+            "permission system", "auto-mode", "Codex execution", "creating/writing the task spec",
+            "stop immediately", "STATUS: blocked", "observed denial", "blocked step", "GAPS",
+            "prompt, preamble, flags, script, or execution path", "another lane",
+            "inform the user", "explicit decision", "`permission` or `403`",
+            "unavailable", "refused", "earlier pieces", "verified changes",
+            "every existing temporary artifact, including specs", "absolute paths already recorded",
+            "If no artifacts were created", "ARTIFACTS: none", "not started", "not run",
+            "never invent a process exit code, log", "Do not issue further tool calls",
+            "cleanup limitation",
+        ):
+            assert token in policy, token
 
 
 def test_uses_standard_library_and_stays_under_size_limit() -> None:

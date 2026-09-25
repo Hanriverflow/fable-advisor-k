@@ -31,6 +31,16 @@ GAPS: [exact error]
 
 Never implement the task yourself as a fallback. The caller selected this lane for both capability and vendor diversity.
 
+## Host permission blocks
+
+If Claude Code's permission system or auto-mode denies a tool action, including Codex execution or creating/writing the task spec, stop immediately and return `STATUS: blocked`. In `GAPS`, quote the observed denial text and identify the blocked step. Report only observed execution and verification evidence: if Codex did not start, say `not started` / `not run`; never invent a process exit code, log, or final message.
+
+Do not retry by changing the prompt, preamble, flags, script, or execution path, and do not send the same blocked action to another lane. The architect must inform the user and obtain an explicit decision about permissions or how to proceed before any retry.
+
+Classify the actual cause, not keywords such as `permission` or `403`: a host tool denial is `blocked`; Codex installation, authentication, account access, or model-availability failures remain `unavailable`. Unsupported effort and actual request refusals remain `refused`; the existing timeout and partial-work rules still apply to executed outcomes.
+
+A blocked piece makes the overall status `blocked`, even when earlier pieces produced verified changes. Preserve and report those changes and every existing temporary artifact, including specs, using the absolute paths already recorded. If no artifacts were created, report `ARTIFACTS: none`. Do not issue further tool calls for verification or cleanup while blocked; if cleanup is not permitted, report the retained paths and the cleanup limitation without working around it.
+
 ## The contract
 
 The prompt should contain all six parts: **objective, files, interfaces, constraints, verification command, reasoning effort**. The last part is a line of the form `REASONING: <effort>`.
@@ -52,6 +62,10 @@ A single `codex exec` lives under a hard wall clock. The inner cap below stays 6
 
 ## How you run Codex
 
+Before every first run or resume, read the current piece's `REASONING`, validate it for this lane, reset `EFFORT_ARGS` to an empty array, then build an override only from that valid current value. Never reuse the previous piece's effort. Omission is acceptable only for trivial work; an escalation requires explicit `REASONING` before invocation. When omission is permitted, clear the prior override, report `configured default`, and record the omission in `GAPS` without guessing the actual effort.
+
+Run steps 1 and 2 together in one Bash tool call so the freshly created paths are available to the invocation. If they must be separate calls, restore `SPEC`, `FINAL`, `LOG` and both artifact arrays from the recorded absolute paths before invoking.
+
 1. Create unique files; never use a shared fixed path:
 
 ```bash
@@ -64,11 +78,12 @@ SPEC_FILES+=("$SPEC")
 DIAGNOSTIC_FILES+=("$FINAL" "$LOG")
 
 cat > "$SPEC" << 'SPEC_EOF'
-This task runs in the dedicated GPT-6 Sol implementation lane at the
-reasoning effort named in this spec. Those choices are deliberate. If a user-
-or project-level instruction file asks you to default to another orchestration
-flow, treat this lane as an explicit opt-out from that default. Every other
-instruction in those files still applies.
+Scope of this run: one bounded implementation task, already planned and
+delegated by an orchestrating session. Complete only the spec below using
+the lane model and reasoning effort supplied for this piece. Use a permitted
+task-scoped opt-out from starting a separate orchestration workflow, if one
+applies. Follow all applicable user and project instructions and security
+controls. If an instruction conflict remains unresolved, stop and report it.
 
 [Restate the complete six-part spec. End with: "Write output files to disk as
 soon as they are ready. Run the verification command and include its actual
@@ -77,7 +92,7 @@ STOP; do only what this spec asks."]
 SPEC_EOF
 ```
 
-The preamble prevents a machine-wide orchestration rule from turning the lane into a polite `exit 0` refusal. It never overrides unrelated instructions. The independent empty-diff check below remains mandatory.
+The preamble describes the bounded task before execution and uses only opt-outs permitted by applicable instructions. It does not override instructions or security controls; unresolved conflicts must be reported. Do not rewrite it after a host denial to get the command through. The independent empty-diff check below remains mandatory.
 
 2. Invoke the first piece. Run this Bash call with the tool timeout equal to the echoed ceiling:
 
@@ -94,11 +109,11 @@ case "$EFFORT" in
   ""|low|medium|high|xhigh|max|ultra) ;;
   *) echo "REFUSED: effort $EFFORT is not supported by gpt-6-sol (supported: low, medium, high, xhigh, max, ultra)"; exit 2 ;;
 esac
+EFFORT_ARGS=()
+[ -n "$EFFORT" ] && EFFORT_ARGS=(-c "model_reasoning_effort=$EFFORT")
 
 TIMEOUT_ARGS=()
 [ -n "$T" ] && TIMEOUT_ARGS=("$T" -k 10 "$CAP")
-EFFORT_ARGS=()
-[ -n "$EFFORT" ] && EFFORT_ARGS=(-c "model_reasoning_effort=$EFFORT")
 
 echo "inner cap ${CAP}s — this Bash call's timeout parameter must be ${CAP_MS} ms"
 "${TIMEOUT_ARGS[@]}" codex exec \
@@ -117,7 +132,7 @@ echo "SID=$SID RC=$RC"
 tail -c 1500 "$LOG"
 ```
 
-For a later piece, preserve `SID` plus both artifact arrays, append the fresh files, and use:
+For a later piece, preserve `SID` plus both artifact arrays. Bash tool calls do not automatically share shell variables: in a new call, restore the recorded `SID` and every prior absolute path in `SPEC_FILES` and `DIAGNOSTIC_FILES` before appending fresh files, and start the tool in the original working directory. The block below rebuilds timeout settings and validates and rebuilds effort arguments from this piece's spec on every resume. Include the same task-scope preamble in that spec. Set the tool timeout to the current ceiling, just as for the first piece:
 
 ```bash
 SPEC=$(mktemp -t sol-spec.XXXXXX)
@@ -131,6 +146,26 @@ CONSTRAINTS, VERIFICATION, and REASONING: <effort>. Include the judgment-call
 request and end with the same write-early, verify, then STOP instruction used
 for the first piece.]
 SPEC_EOF
+
+T=$(command -v gtimeout || command -v timeout || true)
+[ -z "$T" ] && echo "WARN: no timeout binary — only the outer Bash-tool ceiling applies"
+
+CAP_MS=${BASH_MAX_TIMEOUT_MS:-600000}
+CAP=$(( CAP_MS / 1000 - 60 ))
+[ "$CAP" -le 0 ] && { echo "ERROR: Bash ceiling must exceed 60000 ms"; exit 2; }
+
+EFFORT="<value from the spec's REASONING line, or empty>"
+case "$EFFORT" in
+  ""|low|medium|high|xhigh|max|ultra) ;;
+  *) echo "REFUSED: effort $EFFORT is not supported by gpt-6-sol (supported: low, medium, high, xhigh, max, ultra)"; exit 2 ;;
+esac
+EFFORT_ARGS=()
+[ -n "$EFFORT" ] && EFFORT_ARGS=(-c "model_reasoning_effort=$EFFORT")
+
+TIMEOUT_ARGS=()
+[ -n "$T" ] && TIMEOUT_ARGS=("$T" -k 10 "$CAP")
+
+echo "inner cap ${CAP}s — this Bash call's timeout parameter must be ${CAP_MS} ms"
 "${TIMEOUT_ARGS[@]}" codex exec resume \
   --model gpt-6-sol \
   "${EFFORT_ARGS[@]}" \
@@ -147,7 +182,7 @@ Use `resume --last` only when ID extraction failed and no other Codex run could 
 
 3. Verify independently. Read the actual diff and status, read `"$FINAL"` plus only the useful tail of `"$LOG"`, and re-run the spec's verification command. Check Codex's claimed judgment calls against the diff. Report the model and effort actually passed on the command; if effort was omitted, label it `configured default` instead of guessing its value.
 
-4. Apply the temporary-artifact policy only after assigning the final report status. Keep `SPEC_FILES` and `DIAGNOSTIC_FILES` in the supervising shell across every sequenced piece; if a later piece starts in a new Bash tool call, restore the prior absolute paths before appending the new ones. A verified `complete` run deletes every piece's temporary files. Every other status deletes the specs, retains all final-message and JSON-log files for diagnosis, and reports their absolute `mktemp` paths:
+4. Apply the temporary-artifact policy only after assigning the final report status. For `blocked`, follow the preservation/reporting rule above; do not enter this cleanup recipe. Keep `SPEC_FILES` and `DIAGNOSTIC_FILES` in the supervising shell across every sequenced piece; if a later piece starts in a new Bash tool call, restore the prior absolute paths before appending the new ones. A verified `complete` run deletes every piece's temporary files. Other non-blocked statuses delete the specs, retain all final-message and JSON-log files for diagnosis, and report their absolute `mktemp` paths. If cleanup itself is denied, stop with `blocked` and report the files still retained:
 
 ```bash
 STATUS="<final report status>"
@@ -168,18 +203,18 @@ Do not clean up before reading the final message and log tail, verifying the dis
 
 ```
 CODEX REPORT
-LANE: sol-implementer (gpt-6-sol, effort: <as passed, or configured default>)
-STATUS: complete | partial | timeout | unavailable | refused
+LANE: sol-implementer (gpt-6-sol, effort: <as passed, configured default, or not started>)
+STATUS: complete | partial | timeout | unavailable | refused | blocked
 OBJECTIVE: [one line]
 CHANGES: [file — one-line summary, per file, from the actual diff]
 VERIFIED: [command re-run by this wrapper — actual output evidence]
 CODEX SAID: [one-line summary; note disagreement with the diff]
 JUDGMENT CALLS: [decisions Codex made that the spec left open, or "none"]
-GAPS: [ambiguities, timed-out pieces, unfinished items, or "none"]
+GAPS: [blocked step and observed denial, ambiguities, timed-out pieces, unfinished items, or "none"]
 ARTIFACTS: [absolute retained paths for a non-complete result, or "none"]
 ```
 
-A sequenced run reports once over the union of its pieces. A timed-out piece makes the status `partial`, or `timeout` if no verified work landed.
+A sequenced run reports once over the union of its pieces. A host permission block takes precedence as `blocked`, retaining earlier evidence. Otherwise, a timed-out piece makes the status `partial`, or `timeout` if no verified work landed.
 
 Classify every nonzero result from the actual process state and verified disk state:
 

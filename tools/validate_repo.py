@@ -27,7 +27,7 @@ Fields: TypeAlias = dict[str, str]
 PLUGIN_PATH: Final = ".claude-plugin/plugin.json"
 MARKETPLACE_PATH: Final = ".claude-plugin/marketplace.json"
 STATUS_VALUES: Final = frozenset(
-    {"complete", "partial", "timeout", "unavailable", "refused"},
+    {"complete", "partial", "timeout", "unavailable", "refused", "blocked"},
 )
 FRONT_MATTER_RE: Final[re.Pattern[str]] = re.compile(
     r"\A---\s*\n(.*?)\n---\s*(?:\n|$)",
